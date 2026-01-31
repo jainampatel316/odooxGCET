@@ -1,34 +1,30 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, CreditCard, Shield, Check, Clock, MapPin } from 'lucide-react';
+import { ArrowLeft, CreditCard, Shield, Check, Clock } from 'lucide-react';
 import CustomerLayout from '../components/CustomerLayout';
 import { Button } from '../components/ui/button';
 import { useApp } from '../context/AppContext';
-import { formatCurrency, calculateCartTotal, calculateRentalDays, formatDate, generateOrderNumber, generateQuotationNumber, generateInvoiceNumber, delay } from '../utils/helpers';
-import { addQuotation, addOrder, addInvoice, addReservation, getProducts, setProducts } from '../utils/storage';
-import { generateId } from '../data/mockData';
+import { formatCurrency, calculateCartTotal, calculateRentalDays, formatDate } from '../utils/helpers';
+import { orderAPI } from '../utils/api';
 import { toast } from '@/hooks/use-toast';
 
 const CheckoutPage = () => {
   const navigate = useNavigate();
-  const { cart, user, clearCart, login } = useApp();
+  const { cart, user, fetchCart } = useApp();
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [step, setStep] = useState(1); // 1: Info, 2: Payment, 3: Confirmation
+  const [confirmedOrder, setConfirmedOrder] = useState(null); // order from backend after checkout
   
-  // Form states
+  // Form states (user identity comes from logged-in user / DB)
   const [formData, setFormData] = useState({
-    name: user?.name || '',
-    email: user?.email || '',
     phone: user?.phone || '',
-    companyName: user?.companyName || '',
-    gstin: user?.gstin || '',
     address: '',
     city: '',
     state: '',
     pincode: '',
-    deliveryType: 'pickup', // pickup or delivery
-    paymentType: 'full', // full or partial
+    deliveryType: 'pickup',
+    paymentType: 'full',
     securityDeposit: true,
   });
 
@@ -38,10 +34,12 @@ const CheckoutPage = () => {
   const startDate = cart?.rentalStart ? new Date(cart.rentalStart) : null;
   const endDate = cart?.rentalEnd ? new Date(cart.rentalEnd) : null;
   const rentalDays = startDate && endDate ? calculateRentalDays(startDate, endDate) : 0;
-  const useBackendTotals = Array.isArray(cart?.lines) && cart.lines.length > 0;
-  const subtotal = useBackendTotals ? Number(cart?.subtotal ?? 0) : (calculateCartTotal(cart?.items || [], startDate, endDate).subtotal ?? 0);
-  const tax = useBackendTotals ? Number(cart?.taxAmount ?? 0) : (calculateCartTotal(cart?.items || [], startDate, endDate).tax ?? 0);
-  const total = useBackendTotals ? Number(cart?.totalAmount ?? 0) : (calculateCartTotal(cart?.items || [], startDate, endDate).total ?? 0);
+  const useBackendCart = Array.isArray(cart?.lines) && cart.lines.length > 0;
+  const fromLines = cartLines.length > 0 && cartLines.every((l) => l.lineTotal != null);
+  const subtotal = fromLines
+    ? cartLines.reduce((sum, l) => sum + Number(l.lineTotal ?? 0), 0)
+    : useBackendCart ? Number(cart?.subtotal ?? 0) : (calculateCartTotal(cart?.items || [], startDate, endDate).subtotal ?? 0);
+  const total = subtotal;
   const securityDeposit = Math.round(subtotal * 0.5); // 50% security deposit
   const grandTotal = total + securityDeposit;
 
@@ -58,10 +56,6 @@ const CheckoutPage = () => {
 
   const validateStep1 = () => {
     const newErrors = {};
-    if (!formData.name.trim()) newErrors.name = 'Name is required';
-    if (!formData.email.trim()) newErrors.email = 'Email is required';
-    if (!formData.phone.trim()) newErrors.phone = 'Phone is required';
-    if (!formData.gstin.trim()) newErrors.gstin = 'GSTIN is required for invoicing';
     if (formData.deliveryType === 'delivery') {
       if (!formData.address.trim()) newErrors.address = 'Address is required';
       if (!formData.city.trim()) newErrors.city = 'City is required';
@@ -78,141 +72,39 @@ const CheckoutPage = () => {
   };
 
   const handleSubmitOrder = async () => {
-    setIsSubmitting(true);
-    
-    try {
-      // Simulate API call
-      await delay(1500);
-
-      // Create user if not logged in
-      const customerId = user?.id || generateId();
-      const customerData = {
-        id: customerId,
-        name: formData.name,
-        email: formData.email,
-        phone: formData.phone,
-        companyName: formData.companyName,
-        gstin: formData.gstin,
-        role: 'customer',
-      };
-
-      if (!user) {
-        login(customerData);
-      }
-
-      const itemsForOrder = cartLines.map(line => ({
-        productId: line.productId,
-        productName: line.product?.name || 'Product',
-        quantity: line.quantity,
-        pricePerDay: line.unitPrice / (line.rentalDuration || 1),
-        days: line.rentalDuration || rentalDays,
-        total: Number(line.lineTotal) || 0,
-      }));
-
-      const quotationId = generateId();
-      const quotation = {
-        id: quotationId,
-        quotationNumber: generateQuotationNumber(),
-        customerId,
-        customerName: formData.name,
-        items: itemsForOrder,
-        rentalStart: cart?.rentalStart,
-        rentalEnd: cart?.rentalEnd,
-        status: 'confirmed',
-        subtotal,
-        tax,
-        total,
-        notes: '',
-        createdAt: new Date().toISOString(),
-      };
-      addQuotation(quotation);
-
-      // Create order
-      const orderId = generateId();
-      const order = {
-        id: orderId,
-        orderNumber: generateOrderNumber(),
-        quotationId,
-        customerId,
-        customerName: formData.name,
-        vendorId: 'vendor-1', // Simplified - assign to first vendor
-        items: quotation.items,
-        rentalStart: cart.rentalStart,
-        rentalEnd: cart.rentalEnd,
-        status: 'confirmed',
-        subtotal,
-        tax,
-        total,
-        securityDeposit,
-        paymentStatus: formData.paymentType === 'full' ? 'paid' : 'partial',
-        pickupStatus: 'pending',
-        returnStatus: 'pending',
-        deliveryType: formData.deliveryType,
-        deliveryAddress: formData.deliveryType === 'delivery' ? {
-          address: formData.address,
-          city: formData.city,
-          state: formData.state,
-          pincode: formData.pincode,
-        } : null,
-        createdAt: new Date().toISOString(),
-      };
-      addOrder(order);
-
-      // Create invoice
-      const invoice = {
-        id: generateId(),
-        invoiceNumber: generateInvoiceNumber(),
-        orderId,
-        customerId,
-        customerName: formData.name,
-        customerEmail: formData.email,
-        customerGstin: formData.gstin,
-        items: quotation.items,
-        subtotal,
-        tax,
-        securityDeposit,
-        total: grandTotal,
-        amountPaid: formData.paymentType === 'full' ? grandTotal : securityDeposit,
-        status: formData.paymentType === 'full' ? 'paid' : 'partial',
-        dueDate: cart.rentalStart,
-        paidAt: new Date().toISOString(),
-        createdAt: new Date().toISOString(),
-      };
-      addInvoice(invoice);
-
-      // Create reservations for each product
-      cartLines.forEach(item => {
-        addReservation({
-          id: generateId(),
-          productId: item.productId,
-          orderId,
-          startDate: cart.rentalStart,
-          endDate: cart.rentalEnd,
-          quantity: item.quantity,
-        });
-
-        // Update product availability
-        const products = getProducts();
-        const product = products.find(p => p.id === item.productId);
-        if (product) {
-          product.availableQuantity = Math.max(0, product.availableQuantity - item.quantity);
-          setProducts(products);
-        }
+    if (!user) {
+      toast({
+        title: "Login required",
+        description: "Please log in to place an order.",
+        variant: "destructive",
       });
+      navigate('/login', { state: { from: '/checkout' } });
+      return;
+    }
+    if (!cart?.id) {
+      toast({
+        title: "No cart",
+        description: "Your cart is empty or invalid.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-      // Clear cart and move to confirmation
-      clearCart();
+    setIsSubmitting(true);
+    try {
+      const response = await orderAPI.checkout(cart.id, null, null);
+      const orderResult = response?.data ?? response ?? null;
+      setConfirmedOrder(orderResult);
+      await fetchCart();
       setStep(3);
-      
       toast({
         title: "Order Confirmed!",
-        description: "Your rental order has been placed successfully.",
+        description: `Your rental order ${orderResult?.orderNumber ?? ''} has been placed successfully.`,
       });
-
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to process order. Please try again.",
+        description: error.message || "Failed to place order. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -222,6 +114,11 @@ const CheckoutPage = () => {
 
   if (cartLines.length === 0 && step !== 3) {
     navigate('/cart');
+    return null;
+  }
+
+  if (!user && step !== 3) {
+    navigate('/login', { state: { from: '/checkout' } });
     return null;
   }
 
@@ -235,7 +132,11 @@ const CheckoutPage = () => {
           </div>
           <h1 className="text-3xl font-bold mb-4">Order Confirmed!</h1>
           <p className="text-muted-foreground mb-8">
-            Thank you for your order. We've sent a confirmation email to {formData.email}.
+            Thank you for your order.
+            {user?.email && <> We've sent a confirmation to {user.email}.</>}
+            {confirmedOrder?.orderNumber && (
+              <span className="block mt-2 font-medium">Order number: {confirmedOrder.orderNumber}</span>
+            )}
           </p>
           
           <div className="bg-card rounded-xl border p-6 mb-8 text-left">
@@ -324,69 +225,23 @@ const CheckoutPage = () => {
           <div className="lg:col-span-2">
             {step === 1 && (
               <div className="space-y-6">
-                {/* Contact Information */}
+                {/* Logged-in user info from backend / DB */}
                 <div className="bg-card rounded-xl border p-6">
-                  <h2 className="text-lg font-semibold mb-4">Contact Information</h2>
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Full Name *</label>
-                      <input
-                        type="text"
-                        name="name"
-                        value={formData.name}
-                        onChange={handleInputChange}
-                        className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary ${errors.name ? 'border-destructive' : ''}`}
-                        placeholder="John Smith"
-                      />
-                      {errors.name && <p className="text-destructive text-sm mt-1">{errors.name}</p>}
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Email *</label>
-                      <input
-                        type="email"
-                        name="email"
-                        value={formData.email}
-                        onChange={handleInputChange}
-                        className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary ${errors.email ? 'border-destructive' : ''}`}
-                        placeholder="john@example.com"
-                      />
-                      {errors.email && <p className="text-destructive text-sm mt-1">{errors.email}</p>}
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Phone *</label>
-                      <input
-                        type="tel"
-                        name="phone"
-                        value={formData.phone}
-                        onChange={handleInputChange}
-                        className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary ${errors.phone ? 'border-destructive' : ''}`}
-                        placeholder="+1 555-0123"
-                      />
-                      {errors.phone && <p className="text-destructive text-sm mt-1">{errors.phone}</p>}
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Company Name</label>
-                      <input
-                        type="text"
-                        name="companyName"
-                        value={formData.companyName}
-                        onChange={handleInputChange}
-                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                        placeholder="Your Company Ltd."
-                      />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="block text-sm font-medium mb-1">GSTIN *</label>
-                      <input
-                        type="text"
-                        name="gstin"
-                        value={formData.gstin}
-                        onChange={handleInputChange}
-                        className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary ${errors.gstin ? 'border-destructive' : ''}`}
-                        placeholder="22AAAAA0000A1Z5"
-                      />
-                      {errors.gstin && <p className="text-destructive text-sm mt-1">{errors.gstin}</p>}
-                    </div>
+                  <h2 className="text-lg font-semibold mb-4">Account</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Order will be placed as <strong>{user?.name ?? user?.email ?? 'Guest'}</strong>
+                    {user?.email && <> ({user.email})</>}. Customer details are from your account.
+                  </p>
+                  <div className="mt-4">
+                    <label className="block text-sm font-medium mb-1">Phone (optional)</label>
+                    <input
+                      type="tel"
+                      name="phone"
+                      value={formData.phone}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                      placeholder="+1 555-0123"
+                    />
                   </div>
                 </div>
 
@@ -626,10 +481,6 @@ const CheckoutPage = () => {
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Subtotal</span>
                   <span>{formatCurrency(subtotal)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Tax (18% GST)</span>
-                  <span>{formatCurrency(tax)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Security Deposit</span>

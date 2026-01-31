@@ -6,20 +6,19 @@
 /**
  * Map backend RentalOrderStatus to frontend status
  * Backend: DRAFT, CONFIRMED, PICKED_UP, ACTIVE, RETURNED, COMPLETED, CANCELLED
- * Frontend: quotation, sale_order, confirmed, invoiced, cancelled
+ * Frontend: draft, confirmed, picked_up, active, returned, completed, cancelled
  */
 export const mapBackendOrderStatus = (backendStatus) => {
   const statusMap = {
-    'DRAFT': 'quotation',
+    'DRAFT': 'draft',
     'CONFIRMED': 'confirmed',
-    'PICKED_UP': 'invoiced', // After pickup, invoice is typically generated
-    'ACTIVE': 'invoiced',
+    'PICKED_UP': 'picked_up',
+    'ACTIVE': 'active',
     'RETURNED': 'returned',
-    'COMPLETED': 'returned',
+    'COMPLETED': 'completed',
     'CANCELLED': 'cancelled',
   };
-  
-  return statusMap[backendStatus] || 'quotation';
+  return statusMap[backendStatus] || 'draft';
 };
 
 /**
@@ -27,14 +26,14 @@ export const mapBackendOrderStatus = (backendStatus) => {
  */
 export const mapFrontendOrderStatus = (frontendStatus) => {
   const statusMap = {
-    'quotation': 'DRAFT',
-    'sale_order': 'CONFIRMED',
+    'draft': 'DRAFT',
     'confirmed': 'CONFIRMED',
-    'invoiced': 'PICKED_UP',
-    'returned': 'COMPLETED',
+    'picked_up': 'PICKED_UP',
+    'active': 'ACTIVE',
+    'returned': 'RETURNED',
+    'completed': 'COMPLETED',
     'cancelled': 'CANCELLED',
   };
-  
   return statusMap[frontendStatus] || 'DRAFT';
 };
 
@@ -43,14 +42,14 @@ export const mapFrontendOrderStatus = (frontendStatus) => {
  */
 const getRentalDurationDisplay = (status) => {
   const durationMap = {
-    'quotation': 'quotation',
-    'sale_order': 'sold-order',
+    'draft': 'draft',
     'confirmed': 'confirmed',
-    'invoiced': 'invoiced',
+    'picked_up': 'picked-up',
+    'active': 'active',
     'returned': 'returned',
+    'completed': 'completed',
     'cancelled': 'cancelled',
   };
-  
   return durationMap[status] || status;
 };
 
@@ -73,8 +72,14 @@ export const transformBackendOrder = (backendOrder) => {
   const rentalPeriodType = firstLine?.rentalPeriodType?.toLowerCase() || null;
   const rentalDuration = firstLine?.rentalDuration || null;
   
+  const balanceAmount = Number(backendOrder.balanceAmount) ?? 0;
+  const pickupRecords = backendOrder.pickupRecords ?? [];
+  const returnRecords = backendOrder.returnRecords ?? [];
+  const hasPickup = pickupRecords.some((r) => r.status === 'COMPLETED') || ['ACTIVE', 'PICKED_UP', 'RETURNED', 'COMPLETED'].includes(backendOrder.status);
+  const hasReturn = returnRecords.some((r) => r.status === 'COMPLETED') || ['RETURNED', 'COMPLETED'].includes(backendOrder.status);
   return {
     id: backendOrder.id,
+    orderNumber: backendOrder.orderNumber,
     orderReference: backendOrder.orderNumber,
     orderDate: backendOrder.createdAt,
     customerId: backendOrder.customerId,
@@ -88,6 +93,9 @@ export const transformBackendOrder = (backendOrder) => {
     rentalPeriodType: rentalPeriodType,
     rentalPeriodDuration: rentalDuration,
     total: parseFloat(backendOrder.totalAmount) || 0,
+    totalAmount: parseFloat(backendOrder.totalAmount) || 0,
+    subtotal: backendOrder.subtotal != null ? parseFloat(backendOrder.subtotal) : undefined,
+    taxAmount: backendOrder.taxAmount != null ? parseFloat(backendOrder.taxAmount) : undefined,
     status: frontendStatus,
     quotationDate: backendOrder.createdAt,
     confirmedDate: backendOrder.confirmedAt,
@@ -95,8 +103,16 @@ export const transformBackendOrder = (backendOrder) => {
     returnedDate: backendOrder.returnRecords?.[0]?.actualReturnDate || null,
     cancelledDate: backendOrder.status === 'CANCELLED' ? backendOrder.updatedAt : null,
     createdAt: backendOrder.createdAt,
-    
-    // Additional backend data for detail view
+    rentalStart: firstLine?.rentalStartDate ?? null,
+    rentalEnd: firstLine?.rentalEndDate ?? null,
+    paymentStatus: balanceAmount <= 0 ? 'paid' : 'partial',
+    pickupStatus: hasPickup ? 'completed' : 'pending',
+    returnStatus: hasReturn ? 'completed' : 'pending',
+    pickupDate: pickupRecords.find((r) => r.actualPickupDate)?.actualPickupDate ?? null,
+    returnDate: returnRecords.find((r) => r.actualReturnDate)?.actualReturnDate ?? null,
+    pickupRecords,
+    returnRecords,
+    lines: backendOrder.lines ?? [],
     _backendData: backendOrder,
   };
 };
@@ -106,14 +122,14 @@ export const transformBackendOrder = (backendOrder) => {
  */
 const getStatusColor = (status) => {
   const colorMap = {
-    'quotation': 'purple',
-    'sale_order': 'orange',
-    'confirmed': 'green',
-    'invoiced': 'blue',
-    'returned': 'gray',
+    'draft': 'purple',
+    'confirmed': 'blue',
+    'picked_up': 'cyan',
+    'active': 'green',
+    'returned': 'orange',
+    'completed': 'gray',
     'cancelled': 'red',
   };
-  
   return colorMap[status] || 'gray';
 };
 

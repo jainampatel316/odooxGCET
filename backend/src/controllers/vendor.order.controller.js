@@ -21,7 +21,7 @@ export const getVendorOrders = async (req, res) => {
     const orders = await prisma.rentalOrder.findMany({
       where: { id: { in: orderIds } },
       include: {
-        customer: { select: { name: true, email: true, phone: true } },
+        customer: { select: { name: true, email: true } },
         lines: {
           where: { product: { vendorId: req.user.id } },
           include: { product: true, variant: true }
@@ -114,10 +114,13 @@ export const processPickup = async (req, res) => {
         });
     }
 
-    // 5. Check if Order is fully picked up (if multi-vendor, this logic needs coordination)
-    // For now, let's update Order Status if possible
-    // (Ideally, a centralized service checks if all vendors have picked up)
-    // But we can assume if we are here, we are marking this vendor's portion as done.
+    // 5. Update order status: CONFIRMED → ACTIVE when pickup is completed
+    if (order.status === "CONFIRMED") {
+      await prisma.rentalOrder.update({
+        where: { id: orderId },
+        data: { status: "ACTIVE" },
+      });
+    }
 
     res.json({ message: "Pickup processed successfully" });
   } catch (error) {
@@ -208,9 +211,122 @@ export const processReturn = async (req, res) => {
       data: { status: "COMPLETED" }
     });
 
-    res.json({ message: "Return processed successfully" });
+    // 5. Update order status: ACTIVE → RETURNED when return is completed
+    if (order.status === "ACTIVE" || order.status === "PICKED_UP") {
+      await prisma.rentalOrder.update({
+        where: { id: orderId },
+        data: { status: "RETURNED" },
+      });
+    }
+
+    // 6. Create invoice for the order (after return) if none exists
+    let createdInvoice = null;
+    const fullOrder = await prisma.rentalOrder.findUnique({
+      where: { id: orderId },
+      select: { subtotal: true, taxAmount: true, totalAmount: true, customerId: true },
+    });
+    const existingInvoice = await prisma.invoice.findFirst({ where: { orderId } });
+    if (fullOrder && !existingInvoice) {
+      const dueDate = new Date();
+      dueDate.setDate(dueDate.getDate() + 7);
+      const subtotal = Number(fullOrder.subtotal) || 0;
+      const taxAmount = Number(fullOrder.taxAmount) || 0;
+      const totalAmount = Number(fullOrder.totalAmount) || 0;
+      createdInvoice = await prisma.invoice.create({
+        data: {
+          invoiceNumber: `INV-${Date.now()}`,
+          orderId,
+          customerId: fullOrder.customerId,
+          invoiceType: "RENTAL",
+          status: "SENT",
+          dueDate,
+          subtotal,
+          taxAmount,
+          totalAmount,
+          paidAmount: 0,
+          balanceAmount: totalAmount,
+        },
+      });
+    }
+
+    res.json({ message: "Return processed successfully", invoice: createdInvoice });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Error processing return" });
+  }
+};
+
+// Confirm order (vendor accepts): DRAFT → CONFIRMED
+export const confirmOrder = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const order = await prisma.rentalOrder.findFirst({
+      where: { id: orderId },
+      include: { lines: { where: { product: { vendorId: req.user.id } } } },
+    });
+    if (!order || order.lines.length === 0) {
+      return res.status(404).json({ message: "Order not found or unauthorized" });
+    }
+    if (order.status !== "DRAFT") {
+      return res.status(400).json({ message: "Only draft orders can be confirmed" });
+    }
+    await prisma.rentalOrder.update({
+      where: { id: orderId },
+      data: { status: "CONFIRMED", confirmedAt: new Date() },
+    });
+    res.json({ message: "Order confirmed" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Error confirming order" });
+  }
+};
+
+// Cancel order: DRAFT or CONFIRMED → CANCELLED
+export const cancelOrder = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const order = await prisma.rentalOrder.findFirst({
+      where: { id: orderId },
+      include: { lines: { where: { product: { vendorId: req.user.id } } } },
+    });
+    if (!order || order.lines.length === 0) {
+      return res.status(404).json({ message: "Order not found or unauthorized" });
+    }
+    if (order.status !== "DRAFT" && order.status !== "CONFIRMED") {
+      return res.status(400).json({ message: "Only draft or confirmed orders can be cancelled" });
+    }
+    await prisma.rentalOrder.update({
+      where: { id: orderId },
+      data: { status: "CANCELLED" },
+    });
+    res.json({ message: "Order cancelled" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Error cancelling order" });
+  }
+};
+
+// Complete order (invoice/payments done): RETURNED → COMPLETED
+export const completeOrder = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const order = await prisma.rentalOrder.findFirst({
+      where: { id: orderId },
+      include: { lines: { where: { product: { vendorId: req.user.id } } } },
+    });
+    if (!order || order.lines.length === 0) {
+      return res.status(404).json({ message: "Order not found or unauthorized" });
+    }
+    if (order.status !== "RETURNED") {
+      return res.status(400).json({ message: "Only returned orders can be marked complete" });
+    }
+    await prisma.rentalOrder.update({
+      where: { id: orderId },
+      data: { status: "COMPLETED" },
+    });
+    res.json({ message: "Order completed" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Error completing order" });
   }
 };

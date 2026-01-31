@@ -19,19 +19,18 @@ exports.checkout = async (req, res) => {
     // Iterate through lines and check Reservation table for overlaps
     // (Implementation omitted for brevity, but critical for "Prevent overbooking")
 
-    // 3. Create Rental Order
+    // 3. Create Rental Order (DRAFT until vendor confirms)
     const order = await prisma.rentalOrder.create({
       data: {
         orderNumber: `ORD-${Date.now()}`,
         customerId: req.user.id,
         quotationId: quotation.id,
-        status: 'CONFIRMED',
+        status: 'DRAFT',
         billingAddressId,
         shippingAddressId,
         subtotal: quotation.subtotal,
         taxAmount: quotation.taxAmount,
         totalAmount: quotation.totalAmount,
-        confirmedAt: new Date(),
         lines: {
           create: quotation.lines.map(line => ({
             productId: line.productId,

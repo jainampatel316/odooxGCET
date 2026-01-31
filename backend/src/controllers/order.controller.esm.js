@@ -18,13 +18,12 @@ export const checkout = async (req, res) => {
         orderNumber: `ORD-${Date.now()}`,
         customerId: req.user.id,
         quotationId: quotation.id,
-        status: 'CONFIRMED',
+        status: 'DRAFT',
         billingAddressId,
         shippingAddressId,
         subtotal: quotation.subtotal,
         taxAmount: quotation.taxAmount,
         totalAmount: quotation.totalAmount,
-        confirmedAt: new Date(),
         lines: {
           create: quotation.lines.map((line) => ({
             productId: line.productId,
@@ -111,6 +110,29 @@ export const getOrderDetails = async (req, res) => {
     });
     if (!order) return res.status(404).json({ message: 'Order not found' });
     res.json(order);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const getMyInvoices = async (req, res) => {
+  try {
+    const invoices = await prisma.invoice.findMany({
+      where: { customerId: req.user.id },
+      include: {
+        order: {
+          select: {
+            id: true,
+            orderNumber: true,
+            status: true,
+            totalAmount: true,
+            lines: { include: { product: { select: { name: true } } } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json(invoices);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

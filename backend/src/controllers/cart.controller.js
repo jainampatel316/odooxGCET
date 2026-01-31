@@ -95,8 +95,8 @@ export const addToCart = async (req, res) => {
         rentalDuration: duration,
         unitPrice,
         lineTotal,
-        taxRate: 18,
-        taxAmount: lineTotal * 0.18,
+        taxRate: 0,
+        taxAmount: 0,
       },
     });
 
@@ -104,8 +104,8 @@ export const addToCart = async (req, res) => {
       where: { id: cart.id },
       data: {
         subtotal: { increment: lineTotal },
-        taxAmount: { increment: lineTotal * 0.18 },
-        totalAmount: { increment: lineTotal + lineTotal * 0.18 },
+        taxAmount: { increment: 0 },
+        totalAmount: { increment: lineTotal },
       },
     });
 
@@ -147,25 +147,22 @@ export const updateCartItem = async (req, res) => {
     }
 
     const newLineTotal = Number(line.unitPrice) * requestedQty;
-    const newTaxAmount = newLineTotal * (Number(line.taxRate) / 100 || 0.18);
 
     await prisma.quotationLine.update({
       where: { id: lineId },
       data: {
         quantity: requestedQty,
         lineTotal: newLineTotal,
-        taxAmount: newTaxAmount,
+        taxAmount: 0,
       },
     });
 
     const subtotalDelta = newLineTotal - Number(line.lineTotal);
-    const taxDelta = newTaxAmount - Number(line.taxAmount);
     await prisma.quotation.update({
       where: { id: line.quotationId },
       data: {
         subtotal: { increment: subtotalDelta },
-        taxAmount: { increment: taxDelta },
-        totalAmount: { increment: subtotalDelta + taxDelta },
+        totalAmount: { increment: subtotalDelta },
       },
     });
 
@@ -193,8 +190,8 @@ export const deleteCartItem = async (req, res) => {
       where: { id: line.quotationId },
       data: {
         subtotal: { decrement: Number(line.lineTotal) },
-        taxAmount: { decrement: Number(line.taxAmount) },
-        totalAmount: { decrement: Number(line.lineTotal) + Number(line.taxAmount) },
+        taxAmount: { decrement: Number(line.taxAmount) || 0 },
+        totalAmount: { decrement: Number(line.lineTotal) + (Number(line.taxAmount) || 0) },
       },
     });
 

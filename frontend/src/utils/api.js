@@ -196,41 +196,43 @@ export const orderAPI = {
       method: 'GET',
     });
   },
+
+  // Get my invoices (customer)
+  getMyInvoices: async () => {
+    return apiCall('/invoices', { method: 'GET' });
+  },
 };
 
 // Vendor Order API functions
 export const vendorOrderAPI = {
-  // Get vendor's orders
   getVendorOrders: async () => {
-    return apiCall('/vendor/orders', {
-      method: 'GET',
-    });
+    return apiCall('/vendor/orders', { method: 'GET' });
   },
 
-  // Process pickup
-  processPickup: async (orderId, pickupData) => {
+  confirmOrder: async (orderId) => {
+    return apiCall(`/vendor/orders/${orderId}/confirm`, { method: 'POST' });
+  },
+
+  cancelOrder: async (orderId) => {
+    return apiCall(`/vendor/orders/${orderId}/cancel`, { method: 'POST' });
+  },
+
+  processPickup: async (orderId, pickupData = {}) => {
     return apiCall(`/vendor/orders/${orderId}/pickup`, {
       method: 'POST',
       body: JSON.stringify(pickupData),
     });
   },
 
-  // Process return
-  processReturn: async (orderId, returnData) => {
+  processReturn: async (orderId, returnData = {}) => {
     return apiCall(`/vendor/orders/${orderId}/return`, {
       method: 'POST',
       body: JSON.stringify(returnData),
     });
   },
 
-  // Note: Backend may not have a direct status update endpoint
-  // Status changes happen through pickup/return actions
-  // This is a placeholder for potential future implementation
-  updateOrderStatus: async (orderId, newStatus) => {
-    // This endpoint may not exist in backend
-    // Status updates are handled through pickup/return workflows
-    console.warn('Direct status update not implemented in backend');
-    throw new Error('Status updates must be done through pickup/return workflows');
+  completeOrder: async (orderId) => {
+    return apiCall(`/vendor/orders/${orderId}/complete`, { method: 'POST' });
   },
 };
 

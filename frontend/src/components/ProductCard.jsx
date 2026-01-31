@@ -15,10 +15,10 @@ const getRemainingQuantity = (product, cart) => {
 
 const ProductCard = ({ product }) => {
   const navigate = useNavigate();
-  const { addToCart, cart, user } = useApp();
+  const { cart, user } = useApp();
   const remaining = getRemainingQuantity(product, cart);
 
-  const handleAddToCart = async (e) => {
+  const handleAddToCart = (e) => {
     e.preventDefault();
     e.stopPropagation();
     if (!user) {
@@ -26,8 +26,8 @@ const ProductCard = ({ product }) => {
       return;
     }
     if (remaining <= 0) return;
-    await addToCart(product, Math.min(1, remaining));
-    // Toast is shown by AppContext.addToCart
+    // Ask rental period and dates on the product page, not in cart
+    navigate(`/products/${product.id}`, { state: { addToCart: true } });
   };
 
   return (

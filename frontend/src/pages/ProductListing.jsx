@@ -21,7 +21,7 @@ const getRemainingQuantity = (product, cart) => {
 
 const ProductListing = () => {
   const navigate = useNavigate();
-  const { addToCart, user, cart } = useApp();
+  const { user, cart } = useApp();
   const [searchParams, setSearchParams] = useSearchParams();
   const [products, setProducts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -601,7 +601,7 @@ const ProductListing = () => {
                           <Button
                             type="button"
                             size="sm"
-                            onClick={async (e) => {
+                            onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
                               if (!user) {
@@ -609,7 +609,7 @@ const ProductListing = () => {
                                 return;
                               }
                               if (remaining <= 0) return;
-                              await addToCart(product, Math.min(1, remaining));
+                              navigate(`/products/${product.id}`, { state: { addToCart: true } });
                             }}
                             disabled={remaining <= 0}
                           >

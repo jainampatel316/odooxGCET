@@ -1,33 +1,33 @@
 import { DragDropContext, Droppable } from 'react-beautiful-dnd';
 import KanbanColumn from './KanbanColumn';
-import { orderStatuses } from '../../data/mockData';
 
 const OrdersKanbanView = ({ orders, onOrderClick, onOrderDrop }) => {
-    // Group orders by status
+    // Group orders by status: draft → confirmed → active → returned → completed; cancelled separate
     const groupedOrders = {
-        quotation: orders.filter(o => o.status === orderStatuses.QUOTATION),
-        sale_order: orders.filter(o => o.status === orderStatuses.SALE_ORDER),
-        confirmed: orders.filter(o => o.status === orderStatuses.CONFIRMED),
-        invoiced: orders.filter(o => o.status === orderStatuses.INVOICED),
-        cancelled: orders.filter(o => o.status === orderStatuses.CANCELLED),
+        draft: orders.filter(o => o.status === 'draft'),
+        confirmed: orders.filter(o => o.status === 'confirmed'),
+        active: orders.filter(o => o.status === 'active' || o.status === 'picked_up'),
+        returned: orders.filter(o => o.status === 'returned'),
+        completed: orders.filter(o => o.status === 'completed'),
+        cancelled: orders.filter(o => o.status === 'cancelled'),
     };
 
-    // Define the columns to show in order
     const columns = [
-        { key: 'quotation', title: 'Quotation', orders: groupedOrders.quotation },
-        { key: 'sale_order', title: 'Sale order', orders: groupedOrders.sale_order },
+        { key: 'draft', title: 'Draft', orders: groupedOrders.draft },
         { key: 'confirmed', title: 'Confirmed', orders: groupedOrders.confirmed },
-        { key: 'invoiced', title: 'Invoiced', orders: groupedOrders.invoiced },
+        { key: 'active', title: 'Active', orders: groupedOrders.active },
+        { key: 'returned', title: 'Returned', orders: groupedOrders.returned },
+        { key: 'completed', title: 'Completed', orders: groupedOrders.completed },
         { key: 'cancelled', title: 'Cancelled', orders: groupedOrders.cancelled },
     ];
 
-    // Valid transitions in the rental lifecycle
     const validTransitions = {
-        quotation: ['sale_order', 'cancelled'],
-        sale_order: ['confirmed', 'cancelled'],
-        confirmed: ['invoiced', 'cancelled'],
-        invoiced: ['cancelled'], // Invoiced can only be cancelled
-        cancelled: [], // Cancelled is terminal
+        draft: ['confirmed', 'cancelled'],
+        confirmed: ['cancelled'],
+        active: [],
+        returned: [],
+        completed: [],
+        cancelled: [],
     };
 
     const handleDragEnd = (result) => {

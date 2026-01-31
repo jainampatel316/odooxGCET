@@ -129,6 +129,8 @@ export const getStatusBadgeClass = (status) => {
     confirmed: 'badge-confirmed',
     completed: 'badge-completed',
     active: 'badge-confirmed',
+    picked_up: 'badge-confirmed',
+    returned: 'badge-pending',
     overdue: 'badge-overdue',
     cancelled: 'badge-cancelled',
     paid: 'badge-confirmed',
@@ -138,9 +140,20 @@ export const getStatusBadgeClass = (status) => {
   return statusMap[status?.toLowerCase()] || 'badge-draft';
 };
 
-// Get status display text
+// Get status display text (order status: draft, confirmed, picked_up, active, returned, completed, cancelled)
 export const getStatusDisplayText = (status) => {
-  return status?.charAt(0).toUpperCase() + status?.slice(1).toLowerCase();
+  const orderStatusMap = {
+    draft: 'Draft',
+    confirmed: 'Confirmed',
+    picked_up: 'Picked up',
+    active: 'Active',
+    returned: 'Returned',
+    completed: 'Completed',
+    cancelled: 'Cancelled',
+  };
+  const s = status?.toLowerCase?.();
+  if (orderStatusMap[s]) return orderStatusMap[s];
+  return status ? status.charAt(0).toUpperCase() + status.slice(1).toLowerCase() : '';
 };
 
 // Validate email

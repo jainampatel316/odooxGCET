@@ -1,36 +1,83 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Package, FileText, Download, Clock, ArrowRight, User, Settings, LogOut, ChevronRight } from 'lucide-react';
+import { Package, FileText, Download, Clock, ArrowRight, User, Settings, LogOut, ChevronRight, Receipt } from 'lucide-react';
 import CustomerLayout from '../components/CustomerLayout';
 import { Button } from '../components/ui/button';
 import { useApp } from '../context/AppContext';
-import { getOrders, getInvoices, getQuotations } from '../utils/storage';
+import { getQuotations } from '../utils/storage';
+import { orderAPI } from '../utils/api';
+import { transformBackendOrders } from '../utils/orderTransform';
 import { formatCurrency, formatDate, getStatusBadgeClass, getStatusDisplayText } from '../utils/helpers';
-// Product API is available in ../utils/api for future backend integration
-// import { productAPI } from '../utils/api';
+import { toast } from '@/hooks/use-toast';
 
 const CustomerDashboard = () => {
   const navigate = useNavigate();
   const { user, logout } = useApp();
   const [activeTab, setActiveTab] = useState('orders');
   const [orders, setOrders] = useState([]);
+  const [ordersLoading, setOrdersLoading] = useState(true);
   const [invoices, setInvoices] = useState([]);
+  const [invoicesLoading, setInvoicesLoading] = useState(true);
   const [quotations, setQuotations] = useState([]);
+  const [selectedInvoice, setSelectedInvoice] = useState(null);
 
   useEffect(() => {
     if (!user) {
       navigate('/login');
       return;
     }
-    
-    const allOrders = getOrders().filter(o => o.customerId === user.id);
-    const allInvoices = getInvoices().filter(i => i.customerId === user.id);
+
     const allQuotations = getQuotations().filter(q => q.customerId === user.id);
-    
-    setOrders(allOrders);
-    setInvoices(allInvoices);
     setQuotations(allQuotations);
   }, [user, navigate]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchOrders = async () => {
+      setOrdersLoading(true);
+      try {
+        const response = await orderAPI.getMyOrders();
+        const data = Array.isArray(response) ? response : response?.data ?? response ?? [];
+        const list = Array.isArray(data) ? data : [];
+        setOrders(transformBackendOrders(list));
+      } catch (error) {
+        console.error('Error fetching orders:', error);
+        toast({
+          title: 'Error',
+          description: error.message || 'Failed to load orders',
+          variant: 'destructive',
+        });
+        setOrders([]);
+      } finally {
+        setOrdersLoading(false);
+      }
+    };
+
+    fetchOrders();
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchInvoices = async () => {
+      setInvoicesLoading(true);
+      try {
+        const response = await orderAPI.getMyInvoices();
+        const raw = response?.data ?? response;
+        const list = Array.isArray(raw) ? raw : [];
+        setInvoices(list);
+      } catch (error) {
+        console.error('Error fetching invoices:', error);
+        toast({ title: 'Error', description: error.message || 'Failed to load invoices', variant: 'destructive' });
+        setInvoices([]);
+      } finally {
+        setInvoicesLoading(false);
+      }
+    };
+
+    fetchInvoices();
+  }, [user]);
 
   const handleLogout = () => {
     logout();
@@ -38,30 +85,25 @@ const CustomerDashboard = () => {
   };
 
   const handleDownloadInvoice = (invoice) => {
-    // Simulate invoice download
+    const items = invoice.items || invoice.lines || invoice.order?.lines || [];
     const invoiceContent = `
 INVOICE: ${invoice.invoiceNumber}
-Date: ${formatDate(invoice.createdAt)}
-Customer: ${invoice.customerName}
-GSTIN: ${invoice.customerGstin}
+Date: ${formatDate(invoice.invoiceDate || invoice.createdAt)}
+Order: ${invoice.order?.orderNumber || invoice.orderId || '—'}
 
 Items:
-${(invoice.items || invoice.lines || []).map(item => {
-  const productName = item.productName || item.product?.name || 'Product';
-  const quantity = item.quantity || 1;
-  const price = item.pricePerDay || item.unitPrice || item.price || 0;
-  const days = item.days || item.rentalDays || 1;
-  const total = item.total || item.lineTotal || (price * days * quantity);
-  return `- ${productName} x${quantity} @ ${formatCurrency(price)}/day for ${days} days = ${formatCurrency(total)}`;
+${items.map((item) => {
+  const name = item.productName || item.product?.name || 'Product';
+  const qty = item.quantity ?? 1;
+  const tot = Number(item.lineTotal ?? item.total ?? 0);
+  return `- ${name} x${qty} = ${formatCurrency(tot)}`;
 }).join('\n')}
 
-Subtotal: ${formatCurrency(invoice.subtotal || invoice.subTotal || 0)}
-Tax (18% GST): ${formatCurrency(invoice.tax || invoice.taxAmount || 0)}
-Security Deposit: ${formatCurrency(invoice.securityDeposit || 0)}
-Total: ${formatCurrency(invoice.total || invoice.totalAmount || 0)}
-Amount Paid: ${formatCurrency(invoice.amountPaid || invoice.paidAmount || 0)}
+Subtotal: ${formatCurrency(Number(invoice.subtotal ?? invoice.totalAmount ?? 0))}
+Tax: ${formatCurrency(Number(invoice.taxAmount ?? 0))}
+Total: ${formatCurrency(Number(invoice.totalAmount ?? invoice.total ?? 0))}
+Amount Paid: ${formatCurrency(Number(invoice.paidAmount ?? 0))}
     `;
-    
     const blob = new Blob([invoiceContent], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -92,12 +134,20 @@ Amount Paid: ${formatCurrency(invoice.amountPaid || invoice.paidAmount || 0)}
     { label: 'Total Spent', value: formatCurrency(orders.reduce((sum, o) => sum + (o.total || o.totalAmount || 0), 0)), icon: Clock },
   ];
 
+  const completedOrders = orders.filter((o) => {
+    const s = (o.status || '').toLowerCase();
+    return s === 'completed' || s === 'returned';
+  });
+
   const tabs = [
     { id: 'orders', label: 'My Orders', count: orders.length },
+    { id: 'completed', label: 'Completed Orders', count: completedOrders.length },
     { id: 'quotations', label: 'Quotations', count: quotations.length },
     { id: 'invoices', label: 'Invoices', count: invoices.length },
     { id: 'profile', label: 'Profile', count: null },
   ];
+
+  const getInvoiceForOrder = (orderId) => invoices.find((inv) => inv.orderId === orderId);
 
   return (
     <CustomerLayout>
@@ -160,7 +210,11 @@ Amount Paid: ${formatCurrency(invoice.amountPaid || invoice.paidAmount || 0)}
           {/* Orders Tab */}
           {activeTab === 'orders' && (
             <div className="space-y-4">
-              {orders.length === 0 ? (
+              {ordersLoading ? (
+                <div className="text-center py-16 bg-muted/30 rounded-xl">
+                  <p className="text-muted-foreground">Loading orders...</p>
+                </div>
+              ) : orders.length === 0 ? (
                 <div className="text-center py-16 bg-muted/30 rounded-xl">
                   <Package className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
                   <h3 className="text-lg font-medium mb-2">No orders yet</h3>
@@ -175,30 +229,30 @@ Amount Paid: ${formatCurrency(invoice.amountPaid || invoice.paidAmount || 0)}
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-2">
-                          <span className="font-mono text-sm text-muted-foreground">#{order.orderNumber}</span>
+                          <span className="font-mono text-sm text-muted-foreground">#{order.orderNumber || order.orderReference}</span>
                           <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusBadgeClass(order.status)}`}>
                             {getStatusDisplayText(order.status)}
                           </span>
                         </div>
                         <div className="space-y-1">
-                          {/* Support both frontend format (items) and backend format (lines) */}
                           {(order.items || order.lines || []).map((item, idx) => (
-                            <div key={idx} className="text-sm">
-                              {item.productName || item.product?.name || 'Product'} × {item.quantity}
+                            <div key={item.id || idx} className="text-sm">
+                              {item.productName || item.product?.name || 'Product'} × {item.quantity ?? 1}
                             </div>
                           ))}
                         </div>
                         <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground">
                           <span>
                             <Clock className="inline h-4 w-4 mr-1" />
-                            {/* Support both frontend format (rentalStart/rentalEnd) and backend format (startDate/endDate) */}
-                            {formatDate(order.rentalStart || order.startDate)} - {formatDate(order.rentalEnd || order.endDate)}
+                            {order.rentalStart || order.startDate
+                              ? `${formatDate(order.rentalStart || order.startDate)} - ${formatDate(order.rentalEnd || order.endDate)}`
+                              : order.quotationDate && `Ordered ${formatDate(order.quotationDate)}`}
                           </span>
                         </div>
                       </div>
                       <div className="flex items-center gap-4">
                         <div className="text-right">
-                          <div className="font-bold text-lg">{formatCurrency(order.total)}</div>
+                          <div className="font-bold text-lg">{formatCurrency(order.total ?? order.totalAmount ?? 0)}</div>
                           <div className={`text-sm ${order.paymentStatus === 'paid' ? 'text-green-600' : 'text-amber-600'}`}>
                             {order.paymentStatus === 'paid' ? 'Paid' : 'Partial Payment'}
                           </div>
@@ -208,6 +262,80 @@ Amount Paid: ${formatCurrency(invoice.amountPaid || invoice.paidAmount || 0)}
                     </div>
                   </div>
                 ))
+              )}
+            </div>
+          )}
+
+          {/* Completed Orders Tab — past/returned orders with invoice */}
+          {activeTab === 'completed' && (
+            <div className="space-y-4">
+              {ordersLoading ? (
+                <div className="text-center py-16 bg-muted/30 rounded-xl">
+                  <p className="text-muted-foreground">Loading...</p>
+                </div>
+              ) : completedOrders.length === 0 ? (
+                <div className="text-center py-16 bg-muted/30 rounded-xl">
+                  <Receipt className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
+                  <h3 className="text-lg font-medium mb-2">No completed orders yet</h3>
+                  <p className="text-muted-foreground">Orders that are returned or completed will appear here with their invoices.</p>
+                </div>
+              ) : (
+                completedOrders.map((order) => {
+                  const invoice = getInvoiceForOrder(order.id);
+                  return (
+                    <div key={order.id} className="bg-card rounded-xl border p-6">
+                      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                        <div className="flex-1">
+                          <div className="flex flex-wrap items-center gap-3 mb-2">
+                            <span className="font-mono text-sm text-muted-foreground">#{order.orderNumber || order.orderReference}</span>
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusBadgeClass(order.status)}`}>
+                              {getStatusDisplayText(order.status)}
+                            </span>
+                            {invoice && (
+                              <span className="text-xs text-muted-foreground">Invoice: {invoice.invoiceNumber}</span>
+                            )}
+                          </div>
+                          <div className="space-y-1">
+                            {(order.items || order.lines || []).map((item, idx) => (
+                              <div key={item.id || idx} className="text-sm">
+                                {item.productName || item.product?.name || 'Product'} × {item.quantity ?? 1}
+                              </div>
+                            ))}
+                          </div>
+                          <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground">
+                            <span>
+                              <Clock className="inline h-4 w-4 mr-1" />
+                              {order.rentalStart || order.startDate
+                                ? `${formatDate(order.rentalStart || order.startDate)} - ${formatDate(order.rentalEnd || order.endDate)}`
+                                : order.quotationDate && `Ordered ${formatDate(order.quotationDate)}`}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <div className="font-bold text-lg">{formatCurrency(order.total ?? order.totalAmount ?? 0)}</div>
+                            <div className={`text-sm ${order.paymentStatus === 'paid' ? 'text-green-600' : 'text-amber-600'}`}>
+                              {order.paymentStatus === 'paid' ? 'Paid' : 'Partial Payment'}
+                            </div>
+                          </div>
+                          {invoice ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setSelectedInvoice(invoice)}
+                            >
+                              <FileText className="h-4 w-4 mr-2" />
+                              View Invoice
+                            </Button>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">Invoice pending</span>
+                          )}
+                          <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
               )}
             </div>
           )}
@@ -247,42 +375,65 @@ Amount Paid: ${formatCurrency(invoice.amountPaid || invoice.paidAmount || 0)}
           {/* Invoices Tab */}
           {activeTab === 'invoices' && (
             <div className="space-y-4">
-              {invoices.length === 0 ? (
+              {invoicesLoading ? (
+                <div className="text-center py-16 bg-muted/30 rounded-xl">
+                  <p className="text-muted-foreground">Loading invoices...</p>
+                </div>
+              ) : invoices.length === 0 ? (
                 <div className="text-center py-16 bg-muted/30 rounded-xl">
                   <FileText className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
                   <h3 className="text-lg font-medium mb-2">No invoices</h3>
-                  <p className="text-muted-foreground">Your invoices will appear here after orders</p>
+                  <p className="text-muted-foreground">Invoices are created when your rental is returned. They will appear here.</p>
                 </div>
               ) : (
-                invoices.map((invoice) => (
-                  <div key={invoice.id} className="bg-card rounded-xl border p-6">
-                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                      <div>
-                        <div className="flex items-center gap-3 mb-2">
-                          <span className="font-mono text-sm">{invoice.invoiceNumber}</span>
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusBadgeClass(invoice.status)}`}>
-                            {getStatusDisplayText(invoice.status)}
-                          </span>
-                        </div>
-                        <div className="text-sm text-muted-foreground">
-                          {formatDate(invoice.createdAt)}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-right">
-                          <div className="font-bold">{formatCurrency(invoice.total)}</div>
+                invoices.map((invoice) => {
+                  const total = Number(invoice.totalAmount) ?? Number(invoice.total) ?? 0;
+                  const status = (invoice.status || '').toLowerCase();
+                  const displayInvoice = {
+                    ...invoice,
+                    total,
+                    totalAmount: total,
+                    status,
+                    createdAt: invoice.invoiceDate || invoice.createdAt,
+                    amountPaid: Number(invoice.paidAmount) ?? 0,
+                  };
+                  return (
+                    <div key={invoice.id} className="bg-card rounded-xl border p-6">
+                      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                        <div>
+                          <div className="flex items-center gap-3 mb-2">
+                            <span className="font-mono text-sm">{invoice.invoiceNumber}</span>
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusBadgeClass(status)}`}>
+                              {getStatusDisplayText(status)}
+                            </span>
+                            {invoice.order?.orderNumber && (
+                              <span className="text-xs text-muted-foreground">Order #{invoice.order.orderNumber}</span>
+                            )}
+                          </div>
                           <div className="text-sm text-muted-foreground">
-                            Paid: {formatCurrency(invoice.amountPaid)}
+                            {formatDate(invoice.invoiceDate || invoice.createdAt)}
                           </div>
                         </div>
-                        <Button variant="outline" size="sm" onClick={() => handleDownloadInvoice(invoice)}>
-                          <Download className="h-4 w-4 mr-2" />
-                          Download
-                        </Button>
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <div className="font-bold">{formatCurrency(total)}</div>
+                            <div className="text-sm text-muted-foreground">
+                              Paid: {formatCurrency(invoice.paidAmount ?? 0)}
+                            </div>
+                          </div>
+                          <Button variant="outline" size="sm" onClick={() => setSelectedInvoice(invoice)}>
+                            <FileText className="h-4 w-4 mr-2" />
+                            View
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => handleDownloadInvoice(displayInvoice)}>
+                            <Download className="h-4 w-4 mr-2" />
+                            Download
+                          </Button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           )}
@@ -335,6 +486,56 @@ Amount Paid: ${formatCurrency(invoice.amountPaid || invoice.paidAmount || 0)}
           )}
         </div>
       </div>
+
+      {/* Customer Invoice View Modal */}
+      {selectedInvoice && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-card rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto border shadow-lg">
+            <div className="sticky top-0 bg-card border-b p-4 flex items-center justify-between">
+              <h2 className="text-xl font-bold">Invoice {selectedInvoice.invoiceNumber}</h2>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => handleDownloadInvoice(selectedInvoice)}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Download
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setSelectedInvoice(null)}>Close</Button>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div><span className="text-muted-foreground">Date:</span> {formatDate(selectedInvoice.invoiceDate || selectedInvoice.createdAt)}</div>
+                <div><span className="text-muted-foreground">Order:</span> #{selectedInvoice.order?.orderNumber || selectedInvoice.orderId}</div>
+                <div><span className="text-muted-foreground">Status:</span> <span className={`px-2 py-0.5 rounded text-xs font-medium ${getStatusBadgeClass((selectedInvoice.status || '').toLowerCase())}`}>{getStatusDisplayText((selectedInvoice.status || '').toLowerCase())}</span></div>
+              </div>
+              <div>
+                <h3 className="font-semibold mb-2">Items</h3>
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted"><tr><th className="text-left p-2">Product</th><th className="text-center p-2">Qty</th><th className="text-right p-2">Total</th></tr></thead>
+                    <tbody>
+                      {(selectedInvoice.items || selectedInvoice.order?.lines || []).map((item, idx) => (
+                        <tr key={item.id || idx} className="border-t">
+                          <td className="p-2">{item.productName || item.product?.name || 'Product'}</td>
+                          <td className="p-2 text-center">{item.quantity ?? 1}</td>
+                          <td className="p-2 text-right">{formatCurrency(Number(item.lineTotal ?? item.total ?? 0))}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div className="border-t pt-4 flex justify-end">
+                <div className="text-right space-y-1">
+                  <div className="flex justify-between gap-8"><span className="text-muted-foreground">Subtotal</span> {formatCurrency(Number(selectedInvoice.subtotal ?? selectedInvoice.totalAmount ?? 0))}</div>
+                  <div className="flex justify-between gap-8"><span className="text-muted-foreground">Tax</span> {formatCurrency(Number(selectedInvoice.taxAmount ?? 0))}</div>
+                  <div className="font-bold text-lg">Total: {formatCurrency(Number(selectedInvoice.totalAmount ?? selectedInvoice.total ?? 0))}</div>
+                  <div className="text-sm text-muted-foreground">Paid: {formatCurrency(Number(selectedInvoice.paidAmount ?? 0))}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </CustomerLayout>
   );
 };

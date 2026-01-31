@@ -3,8 +3,8 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, Package, ShoppingCart, Truck, DollarSign, FileText, LogOut, Menu, Search, Filter } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { useApp } from '../context/AppContext';
-import { getOrders, getInvoices, updateOrder } from '../utils/storage';
-import { vendorProductAPI } from '../utils/api';
+import { vendorProductAPI, vendorOrderAPI, vendorInvoiceAPI } from '../utils/api';
+import { transformBackendOrders } from '../utils/orderTransform';
 import AddProductModal from '../components/vendor/AddProductModal';
 import { formatCurrency, formatDate, getStatusBadgeClass } from '../utils/helpers';
 import { vendorAnalytics } from '../data/mockData';
@@ -46,12 +46,6 @@ const VendorDashboard = () => {
   const [productsLoading, setProductsLoading] = useState(false);
 
   useEffect(() => {
-    // Initialize with mock data for the new view
-    setNewOrderData(sampleRentalOrders);
-  }, []);
-
-  useEffect(() => {
-    // Backend returns role as "VENDOR" (uppercase); check case-insensitively
     if (!user || user.role?.toLowerCase() !== 'vendor') {
       navigate('/login');
       return;
@@ -61,18 +55,58 @@ const VendorDashboard = () => {
 
   const loadData = async () => {
     if (!user) return;
-    const vendorId = user.id;
-    setOrders(getOrders().filter(o => o.vendorId === vendorId || o.vendorId === 'vendor-1'));
-    setInvoices(getInvoices().filter(i => i.vendorId === vendorId || i.vendorId === 'vendor-1'));
     setProductsLoading(true);
     try {
-      const list = await vendorProductAPI.getVendorProducts();
-      const items = Array.isArray(list) ? list : list?.data ?? [];
+      const [productsRes, ordersRes, invoicesRes] = await Promise.all([
+        vendorProductAPI.getVendorProducts(),
+        vendorOrderAPI.getVendorOrders(),
+        vendorInvoiceAPI.getVendorInvoices(),
+      ]);
+      const items = Array.isArray(productsRes) ? productsRes : productsRes?.data ?? [];
       setProducts(items);
+      const ordersList = Array.isArray(ordersRes) ? ordersRes : ordersRes?.data ?? ordersRes ?? [];
+      const transformed = transformBackendOrders(Array.isArray(ordersList) ? ordersList : []);
+      setOrders(transformed);
+      setNewOrderData(transformed);
+      const rawInvoices = invoicesRes?.data ?? invoicesRes;
+      const invoicesList = Array.isArray(rawInvoices) ? rawInvoices : [];
+      setInvoices(invoicesList.map((inv) => ({
+        id: inv.id,
+        invoiceNumber: inv.invoiceNumber,
+        customerName: inv.customer?.name || '—',
+        customerCompany: inv.customer?.companyName || '',
+        customerEmail: inv.customer?.email || '',
+        customerAddress: null,
+        customerPhone: null,
+        customerGstin: null,
+        invoiceDate: inv.invoiceDate || inv.createdAt,
+        dueDate: inv.dueDate,
+        total: Number(inv.totalAmount) ?? 0,
+        totalAmount: Number(inv.totalAmount) ?? 0,
+        subtotal: Number(inv.subtotal) ?? 0,
+        taxAmount: Number(inv.taxAmount) ?? 0,
+        tax: Number(inv.taxAmount) ?? 0,
+        cgst: Number(inv.cgstAmount) ?? 0,
+        sgst: Number(inv.sgstAmount) ?? 0,
+        securityDeposit: 0,
+        status: (inv.status || '').toLowerCase(),
+        orderId: inv.orderId,
+        order: inv.order,
+        items: (inv.order?.lines || []).map((line) => ({
+          productName: line.product?.name || 'Product',
+          quantity: line.quantity,
+          pricePerDay: Number(line.unitPrice) ?? 0,
+          days: line.rentalDuration ?? 1,
+          total: Number(line.lineTotal) ?? 0,
+        })),
+      })));
     } catch (err) {
-      console.error('Failed to load products:', err);
-      toast({ title: 'Error', description: 'Failed to load products', variant: 'destructive' });
+      console.error('Failed to load data:', err);
+      toast({ title: 'Error', description: err.message || 'Failed to load data', variant: 'destructive' });
       setProducts([]);
+      setOrders([]);
+      setNewOrderData([]);
+      setInvoices([]);
     } finally {
       setProductsLoading(false);
     }
@@ -80,18 +114,64 @@ const VendorDashboard = () => {
 
   const handleLogout = () => { logout(); navigate('/'); };
 
-  const handlePickup = (orderId) => {
-    const pickupDate = new Date().toISOString();
-    updateOrder(orderId, { pickupStatus: 'completed', pickupDate, status: 'active' });
-    loadData();
-    toast({ title: "Pickup completed", description: "Equipment has been picked up successfully." });
+  const handleConfirmOrder = async (orderId) => {
+    try {
+      await vendorOrderAPI.confirmOrder(orderId);
+      await loadData();
+      toast({ title: "Order confirmed", description: "Order has been confirmed." });
+    } catch (err) {
+      toast({ title: "Error", description: err.message || "Failed to confirm order", variant: "destructive" });
+    }
   };
 
-  const handleReturn = (orderId) => {
-    const returnDate = new Date().toISOString();
-    updateOrder(orderId, { returnStatus: 'completed', returnDate, status: 'completed' });
-    loadData();
-    toast({ title: "Return completed", description: "Equipment has been returned successfully." });
+  const handleCancelOrder = async (orderId) => {
+    try {
+      await vendorOrderAPI.cancelOrder(orderId);
+      await loadData();
+      toast({ title: "Order cancelled", description: "Order has been cancelled." });
+    } catch (err) {
+      toast({ title: "Error", description: err.message || "Failed to cancel order", variant: "destructive" });
+    }
+  };
+
+  const handlePickup = async (orderId) => {
+    try {
+      await vendorOrderAPI.processPickup(orderId, { actualPickupDate: new Date().toISOString() });
+      await loadData();
+      toast({ title: "Pickup completed", description: "Equipment has been picked up successfully." });
+    } catch (err) {
+      toast({ title: "Error", description: err.message || "Failed to process pickup", variant: "destructive" });
+    }
+  };
+
+  const handleReturn = async (orderId) => {
+    try {
+      await vendorOrderAPI.processReturn(orderId, {});
+      await loadData();
+      toast({ title: "Return completed", description: "Equipment has been returned successfully." });
+    } catch (err) {
+      toast({ title: "Error", description: err.message || "Failed to process return", variant: "destructive" });
+    }
+  };
+
+  const handleCompleteOrder = async (orderId) => {
+    try {
+      await vendorOrderAPI.completeOrder(orderId);
+      await loadData();
+      toast({ title: "Order completed", description: "Order and payments are complete." });
+    } catch (err) {
+      toast({ title: "Error", description: err.message || "Failed to complete order", variant: "destructive" });
+    }
+  };
+
+  const handleCreateInvoice = async (orderId) => {
+    try {
+      await vendorInvoiceAPI.createInvoice(orderId);
+      await loadData();
+      toast({ title: "Invoice created", description: "Invoice has been created for this order." });
+    } catch (err) {
+      toast({ title: "Error", description: err.message || "Failed to create invoice", variant: "destructive" });
+    }
   };
 
   const togglePublish = async (productId, currentStatus) => {
@@ -106,43 +186,30 @@ const VendorDashboard = () => {
     }
   };
 
-  const handleNewStatusChange = (orderId, newStatus) => {
-    const updatedOrders = newOrderData.map(order => {
-      if (order.id === orderId) {
-        const now = new Date().toISOString();
-        const updates = { status: newStatus };
-
-        // Update lifecycle dates based on new status
-        if (newStatus === 'sale_order' && !order.confirmedDate) {
-          updates.confirmedDate = now;
-        } else if (newStatus === 'confirmed') {
-          updates.confirmedDate = now;
-        } else if (newStatus === 'invoiced') {
-          updates.invoicedDate = now;
-        } else if (newStatus === 'cancelled') {
-          updates.cancelledDate = now;
-        }
-
-        // Update rental duration display
-        const statusToDuration = {
-          'quotation': 'quotation',
-          'sale_order': 'sold-order',
-          'confirmed': 'confirmed',
-          'invoiced': 'invoiced',
-          'cancelled': 'cancelled',
-        };
-        updates.rentalDuration = statusToDuration[newStatus] || newStatus;
-
-        return { ...order, ...updates };
+  const handleNewStatusChange = async (orderId, newStatus) => {
+    if (newStatus === 'cancelled') {
+      try {
+        await vendorOrderAPI.cancelOrder(orderId);
+        await loadData();
+        toast({ title: "Order cancelled", description: "Order has been cancelled." });
+      } catch (err) {
+        toast({ title: "Error", description: err.message || "Failed to cancel order", variant: "destructive" });
       }
-      return order;
-    });
-
+      return;
+    }
+    if (newStatus === 'confirmed') {
+      try {
+        await vendorOrderAPI.confirmOrder(orderId);
+        await loadData();
+        toast({ title: "Order confirmed", description: "Order has been confirmed." });
+      } catch (err) {
+        toast({ title: "Error", description: err.message || "Failed to confirm order", variant: "destructive" });
+      }
+      return;
+    }
+    const updatedOrders = newOrderData.map(order => (order.id === orderId ? { ...order, status: newStatus } : order));
     setNewOrderData(updatedOrders);
-    toast({
-      title: "Order Updated",
-      description: `Order status updated to ${newStatusNames[newStatus] || newStatus}`,
-    });
+    toast({ title: "Order Updated", description: `Order status updated to ${newStatusNames[newStatus] || newStatus}` });
   };
 
   const handleCreateOrder = (newOrder) => {
@@ -196,9 +263,9 @@ const VendorDashboard = () => {
   // Calculate stats
   const stats = [
     { label: 'Total Earnings', value: formatCurrency(vendorAnalytics.totalEarnings), change: '+15.2%', color: 'text-green-600' },
-    { label: 'Active Rentals', value: orders.filter(o => o.status === 'active' || o.pickupStatus === 'completed' && o.returnStatus === 'pending').length, change: '', color: 'text-blue-600' },
-    { label: 'Pending Pickups', value: orders.filter(o => o.pickupStatus === 'pending').length, change: '', color: 'text-yellow-600' },
-    { label: 'Pending Returns', value: orders.filter(o => o.returnStatus === 'pending' && o.pickupStatus === 'completed').length, change: '', color: 'text-orange-600' },
+    { label: 'Active Rentals', value: orders.filter(o => o.status === 'active' || o.status === 'picked_up').length, change: '', color: 'text-blue-600' },
+    { label: 'Pending Pickups', value: orders.filter(o => o.status === 'confirmed').length, change: '', color: 'text-yellow-600' },
+    { label: 'Pending Returns', value: orders.filter(o => o.status === 'active' || o.status === 'picked_up').length, change: '', color: 'text-orange-600' },
   ];
 
   // Order status distribution for pie chart
@@ -306,16 +373,16 @@ const VendorDashboard = () => {
                 <div className="bg-card rounded-xl border p-6">
                   <h3 className="font-semibold mb-4">Upcoming Pickups</h3>
                   <div className="space-y-3">
-                    {orders.filter(o => o.pickupStatus === 'pending').slice(0, 3).map(order => (
+                    {orders.filter(o => o.status === 'confirmed').slice(0, 3).map(order => (
                       <div key={order.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
                         <div>
                           <div className="font-medium">{order.customerName}</div>
-                          <div className="text-sm text-muted-foreground">{formatDate(order.rentalStart)}</div>
+                          <div className="text-sm text-muted-foreground">{formatDate(order.rentalStart || order.quotationDate)}</div>
                         </div>
                         <Button size="sm" onClick={() => setSelectedOrder(order)}>View</Button>
                       </div>
                     ))}
-                    {orders.filter(o => o.pickupStatus === 'pending').length === 0 && (
+                    {orders.filter(o => o.status === 'confirmed').length === 0 && (
                       <div className="text-center py-6 text-muted-foreground">No pending pickups</div>
                     )}
                   </div>
@@ -419,10 +486,12 @@ const VendorDashboard = () => {
                     className="px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm hidden sm:block"
                   >
                     <option value="all">All Status</option>
-                    <option value="quotation">Quotation</option>
-                    <option value="sale_order">Sale Order</option>
+                    <option value="draft">Draft</option>
                     <option value="confirmed">Confirmed</option>
-                    <option value="invoiced">Invoiced</option>
+                    <option value="active">Active</option>
+                    <option value="returned">Returned</option>
+                    <option value="completed">Completed</option>
+                    <option value="cancelled">Cancelled</option>
                   </select>
                 </div>
 
@@ -460,11 +529,11 @@ const VendorDashboard = () => {
                 {viewMode === 'kanban' ? (
                   <OrdersKanbanView
                     orders={filteredNewOrders}
-                    onOrderClick={setNewSelectedOrder}
+                    onOrderClick={setSelectedOrder}
                     onOrderDrop={handleNewStatusChange}
                   />
                 ) : (
-                  <OrdersListView orders={filteredNewOrders} onOrderClick={setNewSelectedOrder} />
+                  <OrdersListView orders={filteredNewOrders} onOrderClick={setSelectedOrder} />
                 )}
               </div>
             </div>
@@ -519,7 +588,7 @@ const VendorDashboard = () => {
                       </div>
                     </div>
                   ))}
-                  {orders.filter(o => o.pickupStatus === 'completed' && o.returnStatus === 'pending').length === 0 && (
+                    {orders.filter(o => o.status === 'active' || o.status === 'picked_up').length === 0 && (
                     <div className="text-center py-12 text-muted-foreground bg-card rounded-xl border">No pending returns</div>
                   )}
                 </div>
@@ -643,6 +712,10 @@ const VendorDashboard = () => {
           onClose={() => setSelectedOrder(null)}
           onPickup={handlePickup}
           onReturn={handleReturn}
+          onConfirm={handleConfirmOrder}
+          onCancel={handleCancelOrder}
+          onComplete={handleCompleteOrder}
+          onCreateInvoice={handleCreateInvoice}
         />
       )}
 
@@ -656,7 +729,14 @@ const VendorDashboard = () => {
 
       {selectedInvoice && (
         <InvoiceViewModal
-          invoice={selectedInvoice}
+          invoice={{
+            ...selectedInvoice,
+            vendorName: user?.name || 'Vendor',
+            vendorEmail: user?.email || '',
+            vendorAddress: user?.companyName || '',
+            vendorPhone: '',
+            vendorGstin: user?.gstin || '—',
+          }}
           onClose={() => setSelectedInvoice(null)}
         />
       )}

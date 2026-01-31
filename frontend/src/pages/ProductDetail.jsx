@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Star, Clock, Shield, Truck, Minus, Plus, ShoppingCart, Calendar, Check, AlertCircle } from 'lucide-react';
 import CustomerLayout from '../components/CustomerLayout';
 import { Button } from '../components/ui/button';
@@ -25,7 +25,9 @@ const getRemainingQuantity = (product, cart) => {
 const ProductDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, addToCart, updateCartDates, cart } = useApp();
+  const fromAddToCart = location.state?.addToCart === true;
   
   const [product, setProduct] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -324,6 +326,9 @@ const ProductDetail = () => {
 
             {/* Date Selection */}
             <div className="mb-6">
+              {fromAddToCart && (
+                <p className="text-sm text-primary font-medium mb-3">Select rental period and dates below, then click Add to Cart.</p>
+              )}
               <h3 className="font-semibold mb-3">Select Rental Period</h3>
               {(hasHourlyPricing || hasDailyPricing) && (
                 <div className="mb-4">
@@ -337,7 +342,7 @@ const ProductDetail = () => {
                           isHourly ? 'border-primary bg-primary/10 text-primary' : 'border-muted hover:border-primary/50'
                         }`}
                       >
-                        Hour (e.g. 3pm 3rd Feb → 4pm 4th Feb)
+                        Hour (e.g. 3pm 4th Feb → 7pm 7th Feb)
                       </button>
                     )}
                     {hasDailyPricing && (

@@ -1,13 +1,29 @@
 import { X, Calendar, User, Phone, Mail, Building2, Package, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { Button } from '../ui/button';
-import { formatCurrency, formatDate, getStatusBadgeClass } from '../../utils/helpers';
+import { formatCurrency, formatDate, getStatusBadgeClass, getStatusDisplayText } from '../../utils/helpers';
 
-const OrderDetailModal = ({ order, onClose, onPickup, onReturn }) => {
+const OrderDetailModal = ({ order, onClose, onPickup, onReturn, onConfirm, onCancel, onComplete, onCreateInvoice }) => {
     if (!order) return null;
 
-    // Check if return is late
+    // Support transformed order: lines from backend, or legacy items
+    const status = (order.status || '').toLowerCase();
+    const items = order.lines?.length
+        ? order.lines.map((line) => ({
+            productName: line.product?.name || 'Product',
+            quantity: line.quantity,
+            pricePerDay: line.unitPrice,
+            days: line.rentalDuration || 1,
+            total: line.lineTotal,
+          }))
+        : order.items || [];
+    const pickupStatus = order.pickupStatus ?? (order.pickupRecords?.length ? 'completed' : (['active', 'returned', 'completed', 'picked_up'].includes(status) ? 'completed' : 'pending'));
+    const returnStatus = order.returnStatus ?? (order.returnRecords?.length ? 'completed' : (['returned', 'completed'].includes(status) ? 'completed' : 'pending'));
+    const pickupDate = order.pickupDate ?? order.pickupRecords?.[0]?.actualPickupDate;
+    const returnDate = order.returnDate ?? order.returnRecords?.[0]?.actualReturnDate;
+    const orderForDisplay = { ...order, items, pickupStatus, returnStatus, pickupDate, returnDate };
+
     const isLateReturn = () => {
-        if (order.returnStatus === 'pending' && order.rentalEnd) {
+        if (returnStatus === 'pending' && order.rentalEnd) {
             const endDate = new Date(order.rentalEnd);
             const today = new Date();
             return today > endDate;
@@ -24,6 +40,32 @@ const OrderDetailModal = ({ order, onClose, onPickup, onReturn }) => {
         return diffDays;
     };
 
+    // Actions by status: draft → Confirm/Cancel; confirmed → Pickup/Cancel; active → Return; returned → Complete
+    const getActions = () => {
+        if (status === 'cancelled' || status === 'completed') return [];
+        const actions = [];
+        if (status === 'draft') {
+            if (onConfirm) actions.push({ label: 'Confirm Order', onClick: () => onConfirm(order.id), variant: 'default' });
+            if (onCancel) actions.push({ label: 'Cancel Order', onClick: () => onCancel(order.id), variant: 'destructive' });
+        }
+        if (status === 'confirmed') {
+            if (onPickup) actions.push({ label: 'Mark Pickup Complete', onClick: () => onPickup(order.id), variant: 'default' });
+            if (onCancel) actions.push({ label: 'Cancel Order', onClick: () => onCancel(order.id), variant: 'destructive' });
+        }
+        if (status === 'active' || status === 'picked_up') {
+            if (onReturn) actions.push({ label: 'Mark Return Complete', onClick: () => onReturn(order.id), variant: 'default' });
+        }
+        if (status === 'returned') {
+            if (onCreateInvoice) actions.push({ label: 'Create Invoice', onClick: () => onCreateInvoice(order.id), variant: 'outline' });
+            if (onComplete) actions.push({ label: 'Complete Order', onClick: () => onComplete(order.id), variant: 'default' });
+        }
+        if (status === 'completed' && onCreateInvoice) {
+            actions.push({ label: 'Create Invoice', onClick: () => onCreateInvoice(order.id), variant: 'outline' });
+        }
+        return actions;
+    };
+    const actions = getActions();
+
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-card rounded-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
@@ -32,7 +74,7 @@ const OrderDetailModal = ({ order, onClose, onPickup, onReturn }) => {
                     <div>
                         <h2 className="text-2xl font-bold">Order Details</h2>
                         <p className="text-sm text-muted-foreground mt-1">
-                            {order.orderNumber} • {formatDate(order.createdAt)}
+                            {order.orderNumber || order.orderReference} • {formatDate(order.createdAt || order.orderDate)}
                         </p>
                     </div>
                     <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
@@ -46,7 +88,7 @@ const OrderDetailModal = ({ order, onClose, onPickup, onReturn }) => {
                         <div className="bg-muted/30 rounded-lg p-4">
                             <div className="text-sm text-muted-foreground mb-1">Order Status</div>
                             <span className={`inline-block px-3 py-1 rounded text-sm font-medium ${getStatusBadgeClass(order.status)}`}>
-                                {order.status.toUpperCase()}
+                                {getStatusDisplayText(order.status)}
                             </span>
                         </div>
                         <div className="bg-muted/30 rounded-lg p-4">
@@ -121,16 +163,16 @@ const OrderDetailModal = ({ order, onClose, onPickup, onReturn }) => {
                                     <div className="font-medium">{formatDate(order.rentalEnd)}</div>
                                 </div>
                             </div>
-                            {order.pickupDate && (
+                            {orderForDisplay.pickupDate && (
                                 <div className="mt-3 pt-3 border-t">
                                     <div className="text-sm text-muted-foreground">Pickup Completed</div>
-                                    <div className="text-sm">{new Date(order.pickupDate).toLocaleString()}</div>
+                                    <div className="text-sm">{new Date(orderForDisplay.pickupDate).toLocaleString()}</div>
                                 </div>
                             )}
-                            {order.returnDate && (
+                            {orderForDisplay.returnDate && (
                                 <div className="mt-2">
                                     <div className="text-sm text-muted-foreground">Return Completed</div>
-                                    <div className="text-sm">{new Date(order.returnDate).toLocaleString()}</div>
+                                    <div className="text-sm">{new Date(orderForDisplay.returnDate).toLocaleString()}</div>
                                 </div>
                             )}
                         </div>
@@ -154,7 +196,7 @@ const OrderDetailModal = ({ order, onClose, onPickup, onReturn }) => {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {order.items.map((item, index) => (
+                                    {orderForDisplay.items.map((item, index) => (
                                         <tr key={index} className="border-t border-muted">
                                             <td className="p-3">
                                                 <div className="font-medium">{item.productName}</div>
@@ -175,23 +217,27 @@ const OrderDetailModal = ({ order, onClose, onPickup, onReturn }) => {
                         <div className="space-y-2">
                             <div className="flex justify-between text-sm">
                                 <span className="text-muted-foreground">Subtotal</span>
-                                <span>{formatCurrency(order.subtotal)}</span>
+                                <span>{formatCurrency(order.subtotal ?? order.totalAmount ?? order.total ?? 0)}</span>
                             </div>
-                            <div className="flex justify-between text-sm">
-                                <span className="text-muted-foreground">Tax (18% GST)</span>
-                                <span>{formatCurrency(order.tax)}</span>
-                            </div>
-                            <div className="flex justify-between text-sm">
-                                <span className="text-muted-foreground">Security Deposit</span>
-                                <span>{formatCurrency(order.securityDeposit)}</span>
-                            </div>
-                            {order.lateReturnFees > 0 && (
+                            {(order.taxAmount ?? order.tax) > 0 && (
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-muted-foreground">Tax</span>
+                                    <span>{formatCurrency(order.taxAmount ?? order.tax ?? 0)}</span>
+                                </div>
+                            )}
+                            {(order.securityDeposit ?? 0) > 0 && (
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-muted-foreground">Security Deposit</span>
+                                    <span>{formatCurrency(order.securityDeposit ?? 0)}</span>
+                                </div>
+                            )}
+                            {(order.lateReturnFees ?? 0) > 0 && (
                                 <div className="flex justify-between text-sm text-red-600">
                                     <span>Late Return Fees</span>
                                     <span>{formatCurrency(order.lateReturnFees)}</span>
                                 </div>
                             )}
-                            {order.damageCharges > 0 && (
+                            {(order.damageCharges ?? 0) > 0 && (
                                 <div className="flex justify-between text-sm text-red-600">
                                     <span>Damage Charges</span>
                                     <span>{formatCurrency(order.damageCharges)}</span>
@@ -199,7 +245,7 @@ const OrderDetailModal = ({ order, onClose, onPickup, onReturn }) => {
                             )}
                             <div className="border-t pt-2 flex justify-between font-bold text-lg">
                                 <span>Total</span>
-                                <span>{formatCurrency(order.total + order.securityDeposit + (order.lateReturnFees || 0) + (order.damageCharges || 0))}</span>
+                                <span>{formatCurrency(order.totalAmount ?? order.total ?? 0)}</span>
                             </div>
                         </div>
                     </div>
@@ -215,7 +261,7 @@ const OrderDetailModal = ({ order, onClose, onPickup, onReturn }) => {
                                     <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs">Pending</span>
                                 )}
                             </div>
-                            {order.pickupStatus === 'pending' && (
+                            {orderForDisplay.pickupStatus === 'pending' && onPickup && (status === 'confirmed' || status === 'active' || status === 'picked_up') && (
                                 <Button
                                     size="sm"
                                     className="w-full mt-2"
@@ -229,7 +275,7 @@ const OrderDetailModal = ({ order, onClose, onPickup, onReturn }) => {
                         <div className="bg-muted/30 rounded-lg p-4">
                             <div className="flex items-center justify-between mb-2">
                                 <span className="font-medium">Return Status</span>
-                                {order.returnStatus === 'completed' ? (
+                                {orderForDisplay.returnStatus === 'completed' ? (
                                     <CheckCircle2 className="h-5 w-5 text-green-600" />
                                 ) : (
                                     <span className={`px-2 py-1 rounded text-xs ${isLateReturn() ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
@@ -238,7 +284,7 @@ const OrderDetailModal = ({ order, onClose, onPickup, onReturn }) => {
                                     </span>
                                 )}
                             </div>
-                            {order.pickupStatus === 'completed' && order.returnStatus === 'pending' && (
+                            {orderForDisplay.pickupStatus === 'completed' && orderForDisplay.returnStatus === 'pending' && onReturn && (
                                 <Button
                                     size="sm"
                                     variant="outline"
@@ -250,6 +296,25 @@ const OrderDetailModal = ({ order, onClose, onPickup, onReturn }) => {
                             )}
                         </div>
                     </div>
+
+                    {/* Status actions: Confirm / Cancel / Pickup / Return / Complete */}
+                    {actions.length > 0 && (
+                        <div className="border-t pt-4">
+                            <h3 className="font-semibold mb-3">Actions</h3>
+                            <div className="flex flex-wrap gap-2">
+                                {actions.map((a, i) => (
+                                    <Button
+                                        key={i}
+                                        size="sm"
+                                        variant={a.variant === 'destructive' ? 'destructive' : 'default'}
+                                        onClick={() => { a.onClick(); onClose(); }}
+                                    >
+                                        {a.label}
+                                    </Button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* Footer */}

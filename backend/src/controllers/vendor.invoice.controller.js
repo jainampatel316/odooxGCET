@@ -16,27 +16,32 @@ export const createInvoice = async (req, res) => {
       return res.status(403).json({ message: "Unauthorized or no items to invoice" });
     }
 
-    // Check if invoice already exists for this order (Simplified logic)
+    // Check if invoice already exists for this order
     const existing = await prisma.invoice.findFirst({ where: { orderId } });
     if (existing) return res.status(400).json({ message: "Invoice already exists" });
 
-    // Calculate totals (Simplified: using total from order, in reality you calculate only vendor's portion)
+    const subtotal = Number(order.subtotal) || 0;
+    const taxAmount = Number(order.taxAmount) || 0;
+    const totalAmount = Number(order.totalAmount) || 0;
+    const due = dueDate ? new Date(dueDate) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
     const invoice = await prisma.invoice.create({
       data: {
-        invoiceNumber: `INV-${Date.now()}`, // Simple generation
+        invoiceNumber: `INV-${Date.now()}`,
         orderId,
         customerId: order.customerId,
         invoiceType: "RENTAL",
         status: "SENT",
-        dueDate: dueDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        subtotal: order.subtotal, // Note: Should filter by vendor items in a multi-vendor scenario
-        taxAmount: order.taxAmount,
-        totalAmount: order.totalAmount,
-        // GST Logic
+        dueDate: due,
+        subtotal,
+        taxAmount,
+        totalAmount,
+        paidAmount: 0,
+        balanceAmount: totalAmount,
         cgstRate: 9,
-        cgstAmount: Number(order.taxAmount) / 2,
+        cgstAmount: taxAmount / 2,
         sgstRate: 9,
-        sgstAmount: Number(order.taxAmount) / 2,
+        sgstAmount: taxAmount / 2,
       }
     });
 
@@ -56,16 +61,23 @@ export const getVendorInvoices = async (req, res) => {
       select: { orderId: true },
       distinct: ["orderId"]
     });
-    
+
     const orderIds = vendorLines.map(l => l.orderId);
+    if (orderIds.length === 0) {
+      return res.json([]);
+    }
 
     const invoices = await prisma.invoice.findMany({
       where: { orderId: { in: orderIds } },
       include: {
-        order: true,
-        customer: { select: { name: true, email: true } }
+        order: {
+          include: {
+            lines: { include: { product: { select: { name: true } } } },
+          },
+        },
+        customer: { select: { name: true, email: true, companyName: true } },
       },
-      orderBy: { createdAt: "desc" }
+      orderBy: { createdAt: "desc" },
     });
 
     res.json(invoices);

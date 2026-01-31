@@ -47,7 +47,13 @@ const CartPage = () => {
   };
 
   const handleProceedToCheckout = () => {
-    // Check if dates are selected
+    // Backend cart: each line has its own dates; no need to select here
+    if (cart?.lines?.length > 0) {
+      navigate('/checkout');
+      return;
+    }
+
+    // Legacy cart: require dates
     if (!startDate || !endDate) {
       toast({
         title: "Select dates",
@@ -156,10 +162,12 @@ const CartPage = () => {
 
   const rentalDays = startDate && endDate ? calculateRentalDays(startDate, endDate) : 0;
 
-  // Use backend cart total if available (Quotation uses subtotal, taxAmount, totalAmount)
-  const subtotal = Number(cart?.subtotal ?? cart?.subtotalAmount ?? 0);
-  const tax = Number(cart?.taxAmount ?? 0);
-  const total = Number(cart?.totalAmount ?? 0);
+  // Compute totals from cart lines (no GST)
+  const fromLines = cartLines.length > 0 && cartLines.every((l) => l.lineTotal != null);
+  const subtotal = fromLines
+    ? cartLines.reduce((sum, l) => sum + Number(l.lineTotal ?? 0), 0)
+    : Number(cart?.subtotal ?? cart?.subtotalAmount ?? 0);
+  const total = subtotal;
 
   if (cartLines.length === 0) {
     return (
@@ -199,178 +207,168 @@ const CartPage = () => {
         <div className="grid lg:grid-cols-3 gap-8">
           {/* Cart Items */}
           <div className="lg:col-span-2 space-y-4">
-            {/* Date Selection Banner */}
-            <div className="bg-primary/5 rounded-xl p-6 border border-primary/20">
-              <div className="flex items-start gap-3 mb-4">
-                <Calendar className="h-5 w-5 text-primary mt-0.5" />
-                <div>
-                  <h3 className="font-semibold">Rental Period</h3>
-                  <p className="text-sm text-muted-foreground">Select your rental period and dates</p>
+            {/* Rental period is chosen when adding to cart on the product page; only show date picker for legacy cart */}
+            {cartLines.length > 0 && !(cart?.lines?.length > 0) && (
+              <div className="bg-primary/5 rounded-xl p-6 border border-primary/20">
+                <div className="flex items-start gap-3 mb-4">
+                  <Calendar className="h-5 w-5 text-primary mt-0.5" />
+                  <div>
+                    <h3 className="font-semibold">Rental Period</h3>
+                    <p className="text-sm text-muted-foreground">Select your rental period and dates</p>
+                  </div>
                 </div>
+                <div className="mb-4">
+                  <label className="text-sm font-medium mb-2 block">Rental Type</label>
+                  <div className="grid grid-cols-3 gap-3">
+                    {[
+                      { value: 'hourly', label: 'Hourly', Icon: CalendarClock },
+                      { value: 'daily', label: 'Daily', Icon: CalendarDays },
+                      { value: 'weekly', label: 'Weekly', Icon: CalendarRange },
+                    ].map((period) => {
+                      const IconComponent = period.Icon;
+                      return (
+                        <button
+                          key={period.value}
+                          type="button"
+                          onClick={() => setRentalPeriod(period.value)}
+                          className={`p-3 rounded-lg border-2 transition-all ${rentalPeriod === period.value
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-gray-200 hover:border-primary/50 text-gray-600'
+                            }`}
+                        >
+                          <IconComponent className="w-5 h-5 mx-auto mb-1" />
+                          <div className="text-xs font-medium">{period.label}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                {rentalPeriod === 'hourly' ? (
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-sm text-muted-foreground mb-1 block">Start Date & Time</label>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="outline" className="w-full justify-start text-left font-normal mb-2">
+                            <Calendar className="mr-2 h-4 w-4" />
+                            {startDate ? format(startDate, 'PPP') : 'Pick a date'}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <CalendarComponent
+                            mode="single"
+                            selected={startDate}
+                            onSelect={(date) => handleDateChange('start', date)}
+                            disabled={(date) => {
+                              const today = new Date();
+                              today.setHours(0, 0, 0, 0);
+                              if (date < today) return true;
+                              if (endDate && date > endDate) return true;
+                              return false;
+                            }}
+                            initialFocus
+                          />
+                        </PopoverContent>
+                      </Popover>
+                      <input
+                        type="time"
+                        value={startTime}
+                        onChange={(e) => setStartTime(e.target.value)}
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm text-muted-foreground mb-1 block">End Date & Time</label>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="outline" className="w-full justify-start text-left font-normal mb-2">
+                            <Calendar className="mr-2 h-4 w-4" />
+                            {endDate ? format(endDate, 'PPP') : 'Pick a date'}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <CalendarComponent
+                            mode="single"
+                            selected={endDate}
+                            onSelect={(date) => handleDateChange('end', date)}
+                            disabled={(date) => (startDate && date <= startDate)}
+                            initialFocus
+                          />
+                        </PopoverContent>
+                      </Popover>
+                      <input
+                        type="time"
+                        value={endTime}
+                        onChange={(e) => setEndTime(e.target.value)}
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-sm text-muted-foreground mb-1 block">Start Date</label>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="outline" className="w-full justify-start text-left font-normal">
+                            <Calendar className="mr-2 h-4 w-4" />
+                            {startDate ? format(startDate, 'PPP') : 'Pick a date'}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <CalendarComponent
+                            mode="single"
+                            selected={startDate}
+                            onSelect={(date) => handleDateChange('start', date)}
+                            disabled={(date) => {
+                              const today = new Date();
+                              today.setHours(0, 0, 0, 0);
+                              if (date < today) return true;
+                              if (endDate && date > endDate) return true;
+                              return false;
+                            }}
+                            initialFocus
+                          />
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                    <div>
+                      <label className="text-sm text-muted-foreground mb-1 block">End Date</label>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="outline" className="w-full justify-start text-left font-normal">
+                            <Calendar className="mr-2 h-4 w-4" />
+                            {endDate ? format(endDate, 'PPP') : 'Pick a date'}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <CalendarComponent
+                            mode="single"
+                            selected={endDate}
+                            onSelect={(date) => handleDateChange('end', date)}
+                            disabled={(date) => startDate && date <= startDate}
+                            initialFocus
+                          />
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                  </div>
+                )}
+                {rentalDays > 0 && (
+                  <div className="mt-4 flex items-center gap-2 text-sm text-primary font-medium">
+                    <Clock className="h-4 w-4" />
+                    {rentalPeriod === 'hourly' && startDate && endDate && startTime && endTime && (() => {
+                      const start = new Date(`${startDate.toISOString().split('T')[0]}T${startTime}`);
+                      const end = new Date(`${endDate.toISOString().split('T')[0]}T${endTime}`);
+                      const hours = Math.ceil((end - start) / (1000 * 60 * 60));
+                      return `${hours} hour${hours !== 1 ? 's' : ''} rental period`;
+                    })()}
+                    {rentalPeriod === 'daily' && `${rentalDays} day${rentalDays > 1 ? 's' : ''} rental period`}
+                    {rentalPeriod === 'weekly' && `${Math.ceil(rentalDays / 7)} week${Math.ceil(rentalDays / 7) > 1 ? 's' : ''} rental period`}
+                  </div>
+                )}
               </div>
-
-              {/* Rental Period Selection */}
-              <div className="mb-4">
-                <label className="text-sm font-medium mb-2 block">Rental Type</label>
-                <div className="grid grid-cols-3 gap-3">
-                  {[
-                    { value: 'hourly', label: 'Hourly', Icon: CalendarClock },
-                    { value: 'daily', label: 'Daily', Icon: CalendarDays },
-                    { value: 'weekly', label: 'Weekly', Icon: CalendarRange },
-                  ].map((period) => {
-                    const IconComponent = period.Icon;
-                    return (
-                      <button
-                        key={period.value}
-                        type="button"
-                        onClick={() => setRentalPeriod(period.value)}
-                        className={`p-3 rounded-lg border-2 transition-all ${rentalPeriod === period.value
-                          ? 'border-primary bg-primary/10 text-primary'
-                          : 'border-gray-200 hover:border-primary/50 text-gray-600'
-                          }`}
-                      >
-                        <IconComponent className="w-5 h-5 mx-auto mb-1" />
-                        <div className="text-xs font-medium">{period.label}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Date/Time Inputs based on rental period */}
-              {rentalPeriod === 'hourly' ? (
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm text-muted-foreground mb-1 block">Start Date & Time</label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button variant="outline" className="w-full justify-start text-left font-normal mb-2">
-                          <Calendar className="mr-2 h-4 w-4" />
-                          {startDate ? format(startDate, 'PPP') : 'Pick a date'}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <CalendarComponent
-                          mode="single"
-                          selected={startDate}
-                          onSelect={(date) => handleDateChange('start', date)}
-                          disabled={(date) => {
-                            const today = new Date();
-                            today.setHours(0, 0, 0, 0);
-                            if (date < today) return true;
-                            if (endDate && date > endDate) return true;
-                            return false;
-                          }}
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
-                    <input
-                      type="time"
-                      value={startTime}
-                      onChange={(e) => setStartTime(e.target.value)}
-                      className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm text-muted-foreground mb-1 block">End Date & Time</label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button variant="outline" className="w-full justify-start text-left font-normal mb-2">
-                          <Calendar className="mr-2 h-4 w-4" />
-                          {endDate ? format(endDate, 'PPP') : 'Pick a date'}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <CalendarComponent
-                          mode="single"
-                          selected={endDate}
-                          onSelect={(date) => handleDateChange('end', date)}
-                          disabled={(date) => {
-                            if (startDate && date <= startDate) return true;
-                            return false;
-                          }}
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
-                    <input
-                      type="time"
-                      value={endTime}
-                      onChange={(e) => setEndTime(e.target.value)}
-                      className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20"
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm text-muted-foreground mb-1 block">Start Date</label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button variant="outline" className="w-full justify-start text-left font-normal">
-                          <Calendar className="mr-2 h-4 w-4" />
-                          {startDate ? format(startDate, 'PPP') : 'Pick a date'}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <CalendarComponent
-                          mode="single"
-                          selected={startDate}
-                          onSelect={(date) => handleDateChange('start', date)}
-                          disabled={(date) => {
-                            const today = new Date();
-                            today.setHours(0, 0, 0, 0);
-                            if (date < today) return true;
-                            if (endDate && date > endDate) return true;
-                            return false;
-                          }}
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                  <div>
-                    <label className="text-sm text-muted-foreground mb-1 block">End Date</label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button variant="outline" className="w-full justify-start text-left font-normal">
-                          <Calendar className="mr-2 h-4 w-4" />
-                          {endDate ? format(endDate, 'PPP') : 'Pick a date'}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <CalendarComponent
-                          mode="single"
-                          selected={endDate}
-                          onSelect={(date) => handleDateChange('end', date)}
-                          disabled={(date) => startDate && date <= startDate}
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                </div>
-              )}
-
-              {rentalDays > 0 && (
-                <div className="mt-4 flex items-center gap-2 text-sm text-primary font-medium">
-                  <Clock className="h-4 w-4" />
-                  {rentalPeriod === 'hourly' && startDate && endDate && startTime && endTime && (
-                    <>
-                      {(() => {
-                        const start = new Date(`${startDate.toISOString().split('T')[0]}T${startTime}`);
-                        const end = new Date(`${endDate.toISOString().split('T')[0]}T${endTime}`);
-                        const hours = Math.ceil((end - start) / (1000 * 60 * 60));
-                        return `${hours} hour${hours !== 1 ? 's' : ''} rental period`;
-                      })()}
-                    </>
-                  )}
-                  {rentalPeriod === 'daily' && `${rentalDays} day${rentalDays > 1 ? 's' : ''} rental period`}
-                  {rentalPeriod === 'weekly' && `${Math.ceil(rentalDays / 7)} week${Math.ceil(rentalDays / 7) > 1 ? 's' : ''} rental period`}
-                </div>
-              )}
-            </div>
+            )}
 
             {/* Cart Items List */}
             {cartLines.map((line) => {
@@ -471,7 +469,12 @@ const CartPage = () => {
                   <span className="text-muted-foreground">Subtotal</span>
                   <span>{formatCurrency(subtotal)}</span>
                 </div>
-                {(rentalDays > 0 || (rentalPeriod === 'hourly' && startDate && endDate && startTime && endTime)) && (
+                {cart?.lines?.length > 0 ? (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Items</span>
+                    <span>{cartLines.length} line{cartLines.length !== 1 ? 's' : ''}</span>
+                  </div>
+                ) : (rentalDays > 0 || (rentalPeriod === 'hourly' && startDate && endDate && startTime && endTime)) && (
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Duration</span>
                     <span>
@@ -486,10 +489,6 @@ const CartPage = () => {
                     </span>
                   </div>
                 )}
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Tax (18% GST)</span>
-                  <span>{formatCurrency(tax)}</span>
-                </div>
                 <div className="border-t pt-3">
                   <div className="flex justify-between text-lg font-bold">
                     <span>Total</span>

@@ -23,10 +23,16 @@ router.post("/products/:productId/variants", productController.createVariant);
 // --- Orders ---
 // Get orders that contain my products
 router.get("/orders", orderController.getVendorOrders);
-// Process Pickup
+// Vendor confirms order (DRAFT → CONFIRMED)
+router.post("/orders/:orderId/confirm", orderController.confirmOrder);
+// Vendor cancels order (DRAFT/CONFIRMED → CANCELLED)
+router.post("/orders/:orderId/cancel", orderController.cancelOrder);
+// Process Pickup (CONFIRMED → ACTIVE when pickup done)
 router.post("/orders/:orderId/pickup", orderController.processPickup);
-// Process Return
+// Process Return (ACTIVE → RETURNED when return done)
 router.post("/orders/:orderId/return", orderController.processReturn);
+// Mark order complete when invoice/payments done (RETURNED → COMPLETED)
+router.post("/orders/:orderId/complete", orderController.completeOrder);
 
 // --- Invoices ---
 router.get("/invoices", invoiceController.getVendorInvoices);
