@@ -1,13 +1,23 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Package, ShoppingCart, Truck, DollarSign, Settings, LogOut, Menu, X, ChevronRight, Plus, Edit, Trash2, Eye, EyeOff, AlertTriangle } from 'lucide-react';
+import { LayoutDashboard, Package, ShoppingCart, Truck, DollarSign, FileText, LogOut, Menu, Search, Filter } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { useApp } from '../context/AppContext';
-import { getProducts, getOrders, updateOrder, updateProduct } from '../utils/storage';
+import { getProducts, getOrders, getInvoices, updateOrder, updateProduct } from '../utils/storage';
 import { formatCurrency, formatDate, getStatusBadgeClass } from '../utils/helpers';
 import { vendorAnalytics } from '../data/mockData';
 import { toast } from '@/hooks/use-toast';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import OrderDetailModal from '../components/vendor/OrderDetailModal';
+import InvoiceViewModal from '../components/vendor/InvoiceViewModal';
+
+// New Orders Components
+import OrdersKanbanView from '../components/orders/OrdersKanbanView';
+import OrdersListView from '../components/orders/OrdersListView';
+import NewOrderDetailModal from '../components/orders/OrderDetailModal';
+import CreateOrderModal from '../components/orders/CreateOrderModal';
+import { sampleRentalOrders, statusDisplayNames as newStatusNames, statusColors as newStatusColors } from '../data/mockData';
+import { LayoutGrid, List } from 'lucide-react';
 
 const VendorDashboard = () => {
   const navigate = useNavigate();
@@ -17,36 +27,106 @@ const VendorDashboard = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
-  const [showProductModal, setShowProductModal] = useState(false);
-  const [editingProduct, setEditingProduct] = useState(null);
+  const [invoices, setInvoices] = useState([]);
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [selectedInvoice, setSelectedInvoice] = useState(null);
+  const [orderFilter, setOrderFilter] = useState('all');
+  const [invoiceFilter, setInvoiceFilter] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // New Orders State
+  const [viewMode, setViewMode] = useState('kanban');
+  const [newOrderData, setNewOrderData] = useState([]);
+  const [newSelectedOrder, setNewSelectedOrder] = useState(null);
+  const [isCreateOrderModalOpen, setIsCreateOrderModalOpen] = useState(false);
+
+  useEffect(() => {
+    // Initialize with mock data for the new view
+    setNewOrderData(sampleRentalOrders);
+  }, []);
 
   useEffect(() => {
     if (!user || user.role !== 'vendor') {
       navigate('/login');
       return;
     }
-    setProducts(getProducts().filter(p => p.vendorId === user.id || p.vendorId === 'vendor-1'));
-    setOrders(getOrders().filter(o => o.vendorId === user.id || o.vendorId === 'vendor-1'));
+    loadData();
   }, [user, navigate]);
+
+  const loadData = () => {
+    const vendorId = user.id;
+    setProducts(getProducts().filter(p => p.vendorId === vendorId || p.vendorId === 'vendor-1'));
+    setOrders(getOrders().filter(o => o.vendorId === vendorId || o.vendorId === 'vendor-1'));
+    setInvoices(getInvoices().filter(i => i.vendorId === vendorId || i.vendorId === 'vendor-1'));
+  };
 
   const handleLogout = () => { logout(); navigate('/'); };
 
   const handlePickup = (orderId) => {
-    updateOrder(orderId, { pickupStatus: 'completed' });
-    setOrders(orders.map(o => o.id === orderId ? { ...o, pickupStatus: 'completed' } : o));
-    toast({ title: "Pickup completed", description: "Equipment has been picked up." });
+    const pickupDate = new Date().toISOString();
+    updateOrder(orderId, { pickupStatus: 'completed', pickupDate, status: 'active' });
+    loadData();
+    toast({ title: "Pickup completed", description: "Equipment has been picked up successfully." });
   };
 
   const handleReturn = (orderId) => {
-    updateOrder(orderId, { returnStatus: 'completed', status: 'completed' });
-    setOrders(orders.map(o => o.id === orderId ? { ...o, returnStatus: 'completed', status: 'completed' } : o));
-    toast({ title: "Return completed", description: "Equipment has been returned." });
+    const returnDate = new Date().toISOString();
+    updateOrder(orderId, { returnStatus: 'completed', returnDate, status: 'completed' });
+    loadData();
+    toast({ title: "Return completed", description: "Equipment has been returned successfully." });
   };
 
   const togglePublish = (productId, currentStatus) => {
     updateProduct(productId, { isPublished: !currentStatus });
-    setProducts(products.map(p => p.id === productId ? { ...p, isPublished: !currentStatus } : p));
+    loadData();
     toast({ title: currentStatus ? "Product unpublished" : "Product published" });
+  };
+
+  const handleNewStatusChange = (orderId, newStatus) => {
+    const updatedOrders = newOrderData.map(order => {
+      if (order.id === orderId) {
+        const now = new Date().toISOString();
+        const updates = { status: newStatus };
+
+        // Update lifecycle dates based on new status
+        if (newStatus === 'sale_order' && !order.confirmedDate) {
+          updates.confirmedDate = now;
+        } else if (newStatus === 'confirmed') {
+          updates.confirmedDate = now;
+        } else if (newStatus === 'invoiced') {
+          updates.invoicedDate = now;
+        } else if (newStatus === 'cancelled') {
+          updates.cancelledDate = now;
+        }
+
+        // Update rental duration display
+        const statusToDuration = {
+          'quotation': 'quotation',
+          'sale_order': 'sold-order',
+          'confirmed': 'confirmed',
+          'invoiced': 'invoiced',
+          'cancelled': 'cancelled',
+        };
+        updates.rentalDuration = statusToDuration[newStatus] || newStatus;
+
+        return { ...order, ...updates };
+      }
+      return order;
+    });
+
+    setNewOrderData(updatedOrders);
+    toast({
+      title: "Order Updated",
+      description: `Order status updated to ${newStatusNames[newStatus] || newStatus}`,
+    });
+  };
+
+  const handleCreateOrder = (newOrder) => {
+    setNewOrderData(prev => [newOrder, ...prev]);
+    toast({
+      title: "Order Created",
+      description: `New order ${newOrder.orderReference} has been created successfully.`,
+    });
   };
 
   const navItems = [
@@ -54,15 +134,65 @@ const VendorDashboard = () => {
     { id: 'products', label: 'Products', icon: Package },
     { id: 'orders', label: 'Orders', icon: ShoppingCart },
     { id: 'pickups', label: 'Pickups & Returns', icon: Truck },
+    { id: 'invoices', label: 'Invoices', icon: FileText },
     { id: 'earnings', label: 'Earnings', icon: DollarSign },
   ];
 
+  // Filter orders
+  const filteredOrders = orders.filter(order => {
+    const matchesFilter = orderFilter === 'all' || order.status === orderFilter;
+    const matchesSearch = !searchQuery ||
+      order.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      order.customerName.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesFilter && matchesSearch;
+  });
+
+  // Filter new orders (Kanban)
+  const filteredNewOrders = newOrderData.filter(order => {
+    const matchesSearch = !searchQuery ||
+      order.orderReference.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      order.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      order.product.toLowerCase().includes(searchQuery.toLowerCase());
+
+    // Map internal filters if needed, but for now strict match or 'all'
+    const matchesFilter = orderFilter === 'all' || order.status === orderFilter;
+
+    return matchesSearch && matchesFilter;
+  });
+
+  // Filter invoices
+  const filteredInvoices = invoices.filter(invoice => {
+    const matchesFilter = invoiceFilter === 'all' || invoice.status === invoiceFilter;
+    const matchesSearch = !searchQuery ||
+      invoice.invoiceNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      invoice.customerName.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesFilter && matchesSearch;
+  });
+
+  // Calculate stats
   const stats = [
-    { label: 'Total Earnings', value: formatCurrency(vendorAnalytics.totalEarnings), change: '+15.2%' },
-    { label: 'Active Rentals', value: vendorAnalytics.activeRentals, change: '+3' },
-    { label: 'Products', value: products.length, change: '' },
-    { label: 'Pending Orders', value: orders.filter(o => o.status === 'pending').length, change: '' },
+    { label: 'Total Earnings', value: formatCurrency(vendorAnalytics.totalEarnings), change: '+15.2%', color: 'text-green-600' },
+    { label: 'Active Rentals', value: orders.filter(o => o.status === 'active' || o.pickupStatus === 'completed' && o.returnStatus === 'pending').length, change: '', color: 'text-blue-600' },
+    { label: 'Pending Pickups', value: orders.filter(o => o.pickupStatus === 'pending').length, change: '', color: 'text-yellow-600' },
+    { label: 'Pending Returns', value: orders.filter(o => o.returnStatus === 'pending' && o.pickupStatus === 'completed').length, change: '', color: 'text-orange-600' },
   ];
+
+  // Order status distribution for pie chart
+  const orderStatusData = [
+    { name: 'Confirmed', value: orders.filter(o => o.status === 'confirmed').length, color: '#3B82F6' },
+    { name: 'Active', value: orders.filter(o => o.status === 'active').length, color: '#10B981' },
+    { name: 'Completed', value: orders.filter(o => o.status === 'completed').length, color: '#6B7280' },
+  ].filter(item => item.value > 0);
+
+  // Check if return is overdue
+  const isOverdue = (order) => {
+    if (order.returnStatus === 'pending' && order.rentalEnd) {
+      const endDate = new Date(order.rentalEnd);
+      const today = new Date();
+      return today > endDate;
+    }
+    return false;
+  };
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -74,7 +204,7 @@ const VendorDashboard = () => {
         </div>
         <nav className="p-4 space-y-1">
           {navItems.map((item) => (
-            <button key={item.id} onClick={() => { setActiveTab(item.id); setSidebarOpen(false); }}
+            <button key={item.id} onClick={() => { setActiveTab(item.id); setSidebarOpen(false); setSearchQuery(''); }}
               className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${activeTab === item.id ? 'bg-sidebar-accent text-sidebar-primary' : 'hover:bg-sidebar-accent/50'}`}>
               <item.icon className="h-5 w-5" />{item.label}
             </button>
@@ -100,23 +230,91 @@ const VendorDashboard = () => {
         <main className="p-4 lg:p-6">
           {activeTab === 'dashboard' && (
             <div className="space-y-6">
+              {/* KPI Cards */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 {stats.map((stat) => (
                   <div key={stat.label} className="bg-card rounded-xl border p-4">
                     <div className="text-sm text-muted-foreground">{stat.label}</div>
-                    <div className="text-2xl font-bold">{stat.value}</div>
-                    {stat.change && <div className="text-sm text-green-600">{stat.change}</div>}
+                    <div className="text-2xl font-bold mt-1">{stat.value}</div>
+                    {stat.change && <div className={`text-sm mt-1 ${stat.color}`}>{stat.change}</div>}
                   </div>
                 ))}
               </div>
-              <div className="bg-card rounded-xl border p-6">
-                <h3 className="font-semibold mb-4">Weekly Earnings</h3>
-                <ResponsiveContainer width="100%" height={250}>
-                  <BarChart data={vendorAnalytics.weeklyEarnings}>
-                    <XAxis dataKey="week" /><YAxis /><Tooltip />
-                    <Bar dataKey="earnings" fill="hsl(222, 80%, 45%)" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+
+              {/* Charts Row */}
+              <div className="grid lg:grid-cols-2 gap-6">
+                {/* Weekly Earnings */}
+                <div className="bg-card rounded-xl border p-6">
+                  <h3 className="font-semibold mb-4">Weekly Earnings</h3>
+                  <ResponsiveContainer width="100%" height={250}>
+                    <BarChart data={vendorAnalytics.weeklyEarnings}>
+                      <XAxis dataKey="week" />
+                      <YAxis />
+                      <Tooltip />
+                      <Bar dataKey="earnings" fill="hsl(222, 80%, 45%)" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Order Distribution */}
+                <div className="bg-card rounded-xl border p-6">
+                  <h3 className="font-semibold mb-4">Order Status Distribution</h3>
+                  {orderStatusData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={250}>
+                      <PieChart>
+                        <Pie data={orderStatusData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
+                          {orderStatusData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex items-center justify-center h-[250px] text-muted-foreground">No orders yet</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Quick Actions */}
+              <div className="grid lg:grid-cols-2 gap-6">
+                {/* Upcoming Pickups */}
+                <div className="bg-card rounded-xl border p-6">
+                  <h3 className="font-semibold mb-4">Upcoming Pickups</h3>
+                  <div className="space-y-3">
+                    {orders.filter(o => o.pickupStatus === 'pending').slice(0, 3).map(order => (
+                      <div key={order.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
+                        <div>
+                          <div className="font-medium">{order.customerName}</div>
+                          <div className="text-sm text-muted-foreground">{formatDate(order.rentalStart)}</div>
+                        </div>
+                        <Button size="sm" onClick={() => setSelectedOrder(order)}>View</Button>
+                      </div>
+                    ))}
+                    {orders.filter(o => o.pickupStatus === 'pending').length === 0 && (
+                      <div className="text-center py-6 text-muted-foreground">No pending pickups</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Overdue Returns */}
+                <div className="bg-card rounded-xl border p-6">
+                  <h3 className="font-semibold mb-4 text-red-600">Overdue Returns</h3>
+                  <div className="space-y-3">
+                    {orders.filter(o => isOverdue(o)).slice(0, 3).map(order => (
+                      <div key={order.id} className="flex items-center justify-between p-3 bg-red-50 border border-red-200 rounded-lg">
+                        <div>
+                          <div className="font-medium text-red-900">{order.customerName}</div>
+                          <div className="text-sm text-red-700">Due: {formatDate(order.rentalEnd)}</div>
+                        </div>
+                        <Button size="sm" variant="destructive" onClick={() => setSelectedOrder(order)}>View</Button>
+                      </div>
+                    ))}
+                    {orders.filter(o => isOverdue(o)).length === 0 && (
+                      <div className="text-center py-6 text-muted-foreground">No overdue returns</div>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -125,7 +323,7 @@ const VendorDashboard = () => {
             <div className="space-y-4">
               <div className="flex justify-between items-center">
                 <h2 className="text-lg font-semibold">My Products ({products.length})</h2>
-                <Button className="gap-2"><Plus className="h-4 w-4" />Add Product</Button>
+                <Button className="gap-2">Add Product</Button>
               </div>
               <div className="bg-card rounded-xl border overflow-hidden">
                 <div className="overflow-x-auto">
@@ -141,16 +339,17 @@ const VendorDashboard = () => {
                       {products.map((product) => (
                         <tr key={product.id} className="border-t">
                           <td className="p-4"><div className="flex items-center gap-3">
-                            <img src={product.images?.[0] || '/placeholder.svg'} className="w-12 h-12 rounded-lg object-cover bg-muted" />
+                            <img src={product.images?.[0] || '/placeholder.svg'} className="w-12 h-12 rounded-lg object-cover bg-muted" alt={product.name} />
                             <span className="font-medium">{product.name}</span>
                           </div></td>
                           <td className="p-4">{formatCurrency(product.pricePerDay)}</td>
                           <td className="p-4">{product.availableQuantity}/{product.quantity}</td>
                           <td className="p-4"><span className={`px-2 py-1 rounded text-xs ${product.isPublished ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{product.isPublished ? 'Published' : 'Draft'}</span></td>
-                          <td className="p-4"><div className="flex gap-2">
-                            <Button variant="ghost" size="icon" onClick={() => togglePublish(product.id, product.isPublished)}>{product.isPublished ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</Button>
-                            <Button variant="ghost" size="icon"><Edit className="h-4 w-4" /></Button>
-                          </div></td>
+                          <td className="p-4">
+                            <Button variant="ghost" size="sm" onClick={() => togglePublish(product.id, product.isPublished)}>
+                              {product.isPublished ? 'Unpublish' : 'Publish'}
+                            </Button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -162,42 +361,202 @@ const VendorDashboard = () => {
 
           {activeTab === 'orders' && (
             <div className="space-y-4">
-              {orders.map((order) => (
-                <div key={order.id} className="bg-card rounded-xl border p-4">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="font-mono text-sm">#{order.orderNumber}</span>
-                        <span className={`px-2 py-1 rounded text-xs ${getStatusBadgeClass(order.status)}`}>{order.status}</span>
-                      </div>
-                      <div className="text-sm text-muted-foreground">{order.customerName} • {formatDate(order.rentalStart)} - {formatDate(order.rentalEnd)}</div>
-                    </div>
-                    <div className="text-right font-bold">{formatCurrency(order.total)}</div>
+              {/* Toolbar */}
+              <div className="flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center bg-card p-3 rounded-xl border">
+                <div className="flex gap-2 items-center flex-1 w-full sm:w-auto">
+                  <div className="relative flex-1 max-w-md">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <input
+                      type="text"
+                      placeholder="Search orders..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    />
                   </div>
+
+                  <select
+                    value={orderFilter}
+                    onChange={(e) => setOrderFilter(e.target.value)}
+                    className="px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm hidden sm:block"
+                  >
+                    <option value="all">All Status</option>
+                    <option value="quotation">Quotation</option>
+                    <option value="sale_order">Sale Order</option>
+                    <option value="confirmed">Confirmed</option>
+                    <option value="invoiced">Invoiced</option>
+                  </select>
                 </div>
-              ))}
+
+                <div className="flex gap-2 w-full sm:w-auto justify-between sm:justify-end">
+                  {/* View Switcher */}
+                  <div className="flex bg-muted p-1 rounded-lg">
+                    <button
+                      onClick={() => setViewMode('kanban')}
+                      className={`p-2 rounded transition-all ${viewMode === 'kanban' ? 'bg-white shadow-sm text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                      title="Kanban View"
+                    >
+                      <LayoutGrid className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setViewMode('list')}
+                      className={`p-2 rounded transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                      title="List View"
+                    >
+                      <List className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* New Order Button */}
+                  <Button
+                    onClick={() => setIsCreateOrderModalOpen(true)}
+                    className="bg-purple-600 hover:bg-purple-700"
+                  >
+                    New Order
+                  </Button>
+                </div>
+              </div>
+
+              {/* Content */}
+              <div className="h-full min-h-[500px]">
+                {viewMode === 'kanban' ? (
+                  <OrdersKanbanView
+                    orders={filteredNewOrders}
+                    onOrderClick={setNewSelectedOrder}
+                    onOrderDrop={handleNewStatusChange}
+                  />
+                ) : (
+                  <OrdersListView orders={filteredNewOrders} onOrderClick={setNewSelectedOrder} />
+                )}
+              </div>
             </div>
           )}
 
           {activeTab === 'pickups' && (
-            <div className="space-y-4">
-              {orders.filter(o => o.pickupStatus === 'pending' || o.returnStatus === 'pending').map((order) => (
-                <div key={order.id} className="bg-card rounded-xl border p-4">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <div className="font-medium">{order.customerName}</div>
-                      <div className="text-sm text-muted-foreground">{formatDate(order.rentalStart)} - {formatDate(order.rentalEnd)}</div>
+            <div className="space-y-6">
+              {/* Pending Pickups */}
+              <div>
+                <h3 className="font-semibold mb-3">Pending Pickups</h3>
+                <div className="space-y-3">
+                  {orders.filter(o => o.pickupStatus === 'pending').map((order) => (
+                    <div key={order.id} className="bg-card rounded-xl border p-4">
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <div className="font-medium">{order.customerName}</div>
+                          <div className="text-sm text-muted-foreground">{order.orderNumber}</div>
+                          <div className="text-sm text-muted-foreground">{formatDate(order.rentalStart)} - {formatDate(order.rentalEnd)}</div>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="outline" onClick={() => setSelectedOrder(order)}>View Details</Button>
+                          <Button size="sm" onClick={() => handlePickup(order.id)}>Mark Pickup</Button>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex gap-2">
-                      {order.pickupStatus === 'pending' && <Button size="sm" onClick={() => handlePickup(order.id)}>Mark Pickup</Button>}
-                      {order.pickupStatus === 'completed' && order.returnStatus === 'pending' && <Button size="sm" variant="outline" onClick={() => handleReturn(order.id)}>Mark Return</Button>}
-                    </div>
-                  </div>
+                  ))}
+                  {orders.filter(o => o.pickupStatus === 'pending').length === 0 && (
+                    <div className="text-center py-12 text-muted-foreground bg-card rounded-xl border">No pending pickups</div>
+                  )}
                 </div>
-              ))}
-              {orders.filter(o => o.pickupStatus === 'pending' || o.returnStatus === 'pending').length === 0 && (
-                <div className="text-center py-12 text-muted-foreground">No pending pickups or returns</div>
-              )}
+              </div>
+
+              {/* Pending Returns */}
+              <div>
+                <h3 className="font-semibold mb-3">Pending Returns</h3>
+                <div className="space-y-3">
+                  {orders.filter(o => o.pickupStatus === 'completed' && o.returnStatus === 'pending').map((order) => (
+                    <div key={order.id} className={`bg-card rounded-xl border p-4 ${isOverdue(order) ? 'border-red-300 bg-red-50' : ''}`}>
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <div className="font-medium">{order.customerName}</div>
+                          <div className="text-sm text-muted-foreground">{order.orderNumber}</div>
+                          <div className="text-sm text-muted-foreground">
+                            Due: {formatDate(order.rentalEnd)}
+                            {isOverdue(order) && <span className="ml-2 text-red-600 font-medium">OVERDUE</span>}
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="outline" onClick={() => setSelectedOrder(order)}>View Details</Button>
+                          <Button size="sm" variant={isOverdue(order) ? "destructive" : "default"} onClick={() => handleReturn(order.id)}>Mark Return</Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {orders.filter(o => o.pickupStatus === 'completed' && o.returnStatus === 'pending').length === 0 && (
+                    <div className="text-center py-12 text-muted-foreground bg-card rounded-xl border">No pending returns</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'invoices' && (
+            <div className="space-y-4">
+              {/* Filters and Search */}
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <input
+                    type="text"
+                    placeholder="Search by invoice number or customer..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  />
+                </div>
+                <select
+                  value={invoiceFilter}
+                  onChange={(e) => setInvoiceFilter(e.target.value)}
+                  className="px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20"
+                >
+                  <option value="all">All Invoices</option>
+                  <option value="paid">Paid</option>
+                  <option value="partial">Partial</option>
+                  <option value="pending">Pending</option>
+                </select>
+              </div>
+
+              {/* Invoices List */}
+              <div className="bg-card rounded-xl border overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-muted/50"><tr>
+                      <th className="text-left p-4 font-medium">Invoice #</th>
+                      <th className="text-left p-4 font-medium">Customer</th>
+                      <th className="text-left p-4 font-medium">Date</th>
+                      <th className="text-right p-4 font-medium">Amount</th>
+                      <th className="text-left p-4 font-medium">Status</th>
+                      <th className="text-left p-4 font-medium">Actions</th>
+                    </tr></thead>
+                    <tbody>
+                      {filteredInvoices.map((invoice) => (
+                        <tr key={invoice.id} className="border-t hover:bg-muted/20">
+                          <td className="p-4"><span className="font-mono text-sm">{invoice.invoiceNumber}</span></td>
+                          <td className="p-4">
+                            <div className="font-medium">{invoice.customerName}</div>
+                            <div className="text-xs text-muted-foreground">{invoice.customerCompany}</div>
+                          </td>
+                          <td className="p-4 text-sm">{formatDate(invoice.invoiceDate)}</td>
+                          <td className="p-4 text-right font-medium">{formatCurrency(invoice.total)}</td>
+                          <td className="p-4">
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${invoice.status === 'paid' ? 'bg-green-100 text-green-700' :
+                              invoice.status === 'partial' ? 'bg-yellow-100 text-yellow-700' :
+                                'bg-red-100 text-red-700'
+                              }`}>
+                              {invoice.status.toUpperCase()}
+                            </span>
+                          </td>
+                          <td className="p-4">
+                            <Button size="sm" variant="outline" onClick={() => setSelectedInvoice(invoice)}>View</Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {filteredInvoices.length === 0 && (
+                  <div className="text-center py-12 text-muted-foreground">No invoices found</div>
+                )}
+              </div>
             </div>
           )}
 
@@ -206,17 +565,71 @@ const VendorDashboard = () => {
               <div className="grid md:grid-cols-2 gap-4">
                 <div className="bg-card rounded-xl border p-6">
                   <div className="text-sm text-muted-foreground">Total Earnings</div>
-                  <div className="text-3xl font-bold text-primary">{formatCurrency(vendorAnalytics.totalEarnings)}</div>
+                  <div className="text-3xl font-bold text-primary mt-2">{formatCurrency(vendorAnalytics.totalEarnings)}</div>
+                  <div className="text-sm text-green-600 mt-1">+{vendorAnalytics.earningsGrowth}% from last month</div>
                 </div>
                 <div className="bg-card rounded-xl border p-6">
                   <div className="text-sm text-muted-foreground">Pending Payouts</div>
-                  <div className="text-3xl font-bold">{formatCurrency(vendorAnalytics.pendingPayouts)}</div>
+                  <div className="text-3xl font-bold mt-2">{formatCurrency(vendorAnalytics.pendingPayouts)}</div>
+                  <div className="text-sm text-muted-foreground mt-1">To be processed</div>
+                </div>
+              </div>
+
+              {/* Recent Transactions */}
+              <div className="bg-card rounded-xl border p-6">
+                <h3 className="font-semibold mb-4">Recent Transactions</h3>
+                <div className="space-y-3">
+                  {invoices.filter(i => i.status === 'paid').slice(0, 5).map(invoice => (
+                    <div key={invoice.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
+                      <div>
+                        <div className="font-medium">{invoice.invoiceNumber}</div>
+                        <div className="text-sm text-muted-foreground">{invoice.customerName} • {formatDate(invoice.paidAt)}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-bold text-green-600">{formatCurrency(invoice.amountPaid)}</div>
+                        <div className="text-xs text-muted-foreground">{invoice.paymentMethod}</div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
           )}
         </main>
       </div>
+
+      {/* Modals */}
+      {selectedOrder && (
+        <OrderDetailModal
+          order={selectedOrder}
+          onClose={() => setSelectedOrder(null)}
+          onPickup={handlePickup}
+          onReturn={handleReturn}
+        />
+      )}
+
+      {newSelectedOrder && (
+        <NewOrderDetailModal
+          order={newSelectedOrder}
+          onClose={() => setNewSelectedOrder(null)}
+          onStatusChange={handleNewStatusChange}
+        />
+      )}
+
+      {selectedInvoice && (
+        <InvoiceViewModal
+          invoice={selectedInvoice}
+          onClose={() => setSelectedInvoice(null)}
+        />
+      )}
+
+      {/* Create Order Modal */}
+      <CreateOrderModal
+        isOpen={isCreateOrderModalOpen}
+        onClose={() => setIsCreateOrderModalOpen(false)}
+        onCreateOrder={handleCreateOrder}
+      />
+
       {sidebarOpen && <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />}
     </div>
   );
