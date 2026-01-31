@@ -12,10 +12,13 @@ import { toast } from '@/hooks/use-toast';
 
 const CartPage = () => {
   const navigate = useNavigate();
-  const { cart, updateCartItem, removeFromCart, updateCartDates, clearCart } = useApp();
+  const { cart, updateCartItem, removeFromCart, clearCart, isCartLoading } = useApp();
 
-  const [startDate, setStartDate] = useState(cart.rentalStart ? new Date(cart.rentalStart) : null);
-  const [endDate, setEndDate] = useState(cart.rentalEnd ? new Date(cart.rentalEnd) : null);
+  // Backend cart uses 'lines' instead of 'items'
+  const cartLines = cart?.lines || [];
+
+  const [startDate, setStartDate] = useState(null);
+  const [endDate, setEndDate] = useState(null);
   const [rentalPeriod, setRentalPeriod] = useState('daily'); // hourly, daily, weekly
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('17:00');
@@ -23,24 +26,20 @@ const CartPage = () => {
   const handleDateChange = (type, date) => {
     if (type === 'start') {
       setStartDate(date);
-      if (date && endDate) {
-        updateCartDates(date.toISOString(), endDate.toISOString());
-      }
     } else {
       setEndDate(date);
-      if (startDate && date) {
-        updateCartDates(startDate.toISOString(), date.toISOString());
-      }
     }
+    // Note: Dates are stored locally and sent during checkout
+    // Backend cart doesn't store rental dates in the quotation
   };
 
-  const handleQuantityChange = (productId, delta, currentQty) => {
+  const handleQuantityChange = async (lineId, delta, currentQty) => {
     const newQty = Math.max(1, currentQty + delta);
-    updateCartItem(productId, newQty);
+    await updateCartItem(lineId, newQty);
   };
 
-  const handleRemoveItem = (productId, productName) => {
-    removeFromCart(productId);
+  const handleRemoveItem = async (lineId, productName) => {
+    await removeFromCart(lineId);
     toast({
       title: "Removed from cart",
       description: `${productName} has been removed.`,
@@ -156,11 +155,13 @@ const CartPage = () => {
   };
 
   const rentalDays = startDate && endDate ? calculateRentalDays(startDate, endDate) : 0;
-  const { subtotal, tax, total } = startDate && endDate && cart.items.length > 0
-    ? calculateCartTotal(cart.items, startDate, endDate)
-    : { subtotal: 0, tax: 0, total: 0 };
 
-  if (cart.items.length === 0) {
+  // Use backend cart total if available (Quotation uses subtotal, taxAmount, totalAmount)
+  const subtotal = Number(cart?.subtotal ?? cart?.subtotalAmount ?? 0);
+  const tax = Number(cart?.taxAmount ?? 0);
+  const total = Number(cart?.totalAmount ?? 0);
+
+  if (cartLines.length === 0) {
     return (
       <CustomerLayout>
         <div className="container py-16 text-center">
@@ -188,9 +189,9 @@ const CartPage = () => {
               Continue Shopping
             </Link>
             <h1 className="text-3xl font-bold">Your Cart</h1>
-            <p className="text-muted-foreground">{cart.items.length} item{cart.items.length > 1 ? 's' : ''} in your cart</p>
+            <p className="text-muted-foreground">{cartLines.length} item{cartLines.length > 1 ? 's' : ''} in your cart</p>
           </div>
-          <Button variant="outline" onClick={() => { clearCart(); toast({ title: "Cart cleared" }); }}>
+          <Button variant="outline" onClick={async () => { await clearCart(); toast({ title: "Cart cleared" }); }}>
             Clear Cart
           </Button>
         </div>
@@ -372,71 +373,67 @@ const CartPage = () => {
             </div>
 
             {/* Cart Items List */}
-            {cart.items.map((item) => {
-              let itemTotal = 0;
-              let durationText = '';
+            {cartLines.map((line) => {
+              // Backend cart line structure:
+              // { id, quotationId, productId, variantId, quantity, unitPrice, totalPrice, product: { name, images, ... } }
 
-              if (rentalPeriod === 'hourly' && startDate && endDate && startTime && endTime) {
-                const start = new Date(`${startDate.toISOString().split('T')[0]}T${startTime}`);
-                const end = new Date(`${endDate.toISOString().split('T')[0]}T${endTime}`);
-                const hours = Math.ceil((end - start) / (1000 * 60 * 60));
-                const pricePerHour = item.pricePerHour || item.pricePerDay / 8;
-                itemTotal = hours * pricePerHour * item.quantity;
-                durationText = `for ${hours} hour${hours !== 1 ? 's' : ''}`;
-              } else if (rentalPeriod === 'daily' && rentalDays > 0) {
-                itemTotal = item.pricePerDay * rentalDays * item.quantity;
-                durationText = `for ${rentalDays} day${rentalDays !== 1 ? 's' : ''}`;
-              } else if (rentalPeriod === 'weekly' && rentalDays > 0) {
-                const weeks = Math.ceil(rentalDays / 7);
-                const pricePerWeek = item.pricePerWeek || item.pricePerDay * 7;
-                itemTotal = weeks * pricePerWeek * item.quantity;
-                durationText = `for ${weeks} week${weeks !== 1 ? 's' : ''}`;
-              }
+              const product = line.product || {};
+              const productName = product.name || 'Unknown Product';
+              const productImage = product.imageUrl || product.images?.[0] || '/placeholder.svg';
+              const unitPrice = parseFloat(line.unitPrice) || 0;
+              const lineTotal = parseFloat(line.lineTotal ?? line.totalPrice) || 0;
 
               return (
-                <div key={item.productId} className="bg-card rounded-xl border p-4 sm:p-6">
+                <div key={line.id} className="bg-card rounded-xl border p-4 sm:p-6">
                   <div className="flex gap-4">
                     {/* Product Image */}
-                    <Link to={`/products/${item.productId}`}>
+                    <Link to={`/products/${line.productId}`}>
                       <img
-                        src={item.image || '/placeholder.svg'}
-                        alt={item.productName}
+                        src={productImage}
+                        alt={productName}
                         className="w-24 h-24 sm:w-32 sm:h-32 object-cover rounded-lg bg-muted"
                       />
                     </Link>
 
                     {/* Product Details */}
                     <div className="flex-1 min-w-0">
-                      <Link to={`/products/${item.productId}`}>
-                        <h3 className="font-semibold hover:text-primary transition-colors">{item.productName}</h3>
+                      <Link to={`/products/${line.productId}`}>
+                        <h3 className="font-semibold hover:text-primary transition-colors">{productName}</h3>
                       </Link>
                       <p className="text-sm text-muted-foreground mt-1">
-                        {rentalPeriod === 'hourly' && formatCurrency(item.pricePerHour || item.pricePerDay / 8)}/hour
-                        {rentalPeriod === 'daily' && formatCurrency(item.pricePerDay)}/day
-                        {rentalPeriod === 'weekly' && formatCurrency(item.pricePerWeek || item.pricePerDay * 7)}/week
+                        {formatCurrency(unitPrice)} per unit
+                        {line.rentalPeriodType && line.rentalDuration != null && (
+                          <span className="block mt-0.5 text-muted-foreground">
+                            {line.rentalPeriodType === 'HOURLY'
+                              ? `${line.rentalDuration} hour${line.rentalDuration !== 1 ? 's' : ''} rental`
+                              : `${line.rentalDuration} day${line.rentalDuration !== 1 ? 's' : ''} rental`}
+                          </span>
+                        )}
                       </p>
 
                       {/* Quantity Controls */}
                       <div className="flex items-center gap-4 mt-4">
                         <div className="flex items-center border rounded-lg">
                           <button
-                            onClick={() => handleQuantityChange(item.productId, -1, item.quantity)}
-                            disabled={item.quantity <= 1}
+                            onClick={() => handleQuantityChange(line.id, -1, line.quantity)}
+                            disabled={line.quantity <= 1 || isCartLoading}
                             className="p-2 hover:bg-muted disabled:opacity-50"
                           >
                             <Minus className="h-4 w-4" />
                           </button>
-                          <span className="px-3 min-w-[2.5rem] text-center font-medium">{item.quantity}</span>
+                          <span className="px-3 min-w-[2.5rem] text-center font-medium">{line.quantity}</span>
                           <button
-                            onClick={() => handleQuantityChange(item.productId, 1, item.quantity)}
+                            onClick={() => handleQuantityChange(line.id, 1, line.quantity)}
+                            disabled={isCartLoading}
                             className="p-2 hover:bg-muted"
                           >
                             <Plus className="h-4 w-4" />
                           </button>
                         </div>
                         <button
-                          onClick={() => handleRemoveItem(item.productId, item.productName)}
-                          className="text-destructive hover:text-destructive/80 flex items-center gap-1 text-sm"
+                          onClick={() => handleRemoveItem(line.id, productName)}
+                          disabled={isCartLoading}
+                          className="text-destructive hover:text-destructive/80 flex items-center gap-1 text-sm disabled:opacity-50"
                         >
                           <Trash2 className="h-4 w-4" />
                           <span className="hidden sm:inline">Remove</span>
@@ -446,10 +443,10 @@ const CartPage = () => {
 
                     {/* Item Total */}
                     <div className="text-right">
-                      <div className="font-bold text-lg">{formatCurrency(itemTotal)}</div>
-                      {durationText && (
-                        <div className="text-sm text-muted-foreground">{durationText}</div>
-                      )}
+                      <div className="font-bold text-lg">{formatCurrency(lineTotal)}</div>
+                      <div className="text-sm text-muted-foreground">
+                        {line.quantity} × {formatCurrency(unitPrice)}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -462,7 +459,7 @@ const CartPage = () => {
             <div className="bg-card rounded-xl border p-6 sticky top-24">
               <h2 className="text-xl font-bold mb-6">Order Summary</h2>
 
-              {(!startDate || !endDate) && (
+              {cart?.lines?.length === 0 && (!startDate || !endDate) && (
                 <div className="flex items-start gap-2 p-3 bg-amber-50 text-amber-800 rounded-lg mb-6 text-sm">
                   <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
                   <span>Select rental dates to see pricing</span>
@@ -505,7 +502,10 @@ const CartPage = () => {
                 size="lg"
                 className="w-full mb-3"
                 onClick={handleProceedToCheckout}
-                disabled={!startDate || !endDate}
+                disabled={
+                  cartLines.length === 0 ||
+                  (cart?.lines?.length ? false : !startDate || !endDate)
+                }
               >
                 Proceed to Checkout
               </Button>

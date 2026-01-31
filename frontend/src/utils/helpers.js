@@ -40,18 +40,39 @@ export const calculateRentalDays = (startDate, endDate) => {
   return Math.max(diffDays, 1); // Minimum 1 day
 };
 
-// Calculate rental price based on duration
-export const calculateRentalPrice = (product, startDate, endDate) => {
+// Calculate rental hours between start and end (for hourly pricing)
+export const calculateRentalHours = (startDate, endDate) => {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  const diffMs = end - start;
+  const hours = Math.ceil(diffMs / (1000 * 60 * 60));
+  return Math.max(hours, 1); // Minimum 1 hour
+};
+
+// Calculate rental price based on duration and period type (HOURLY or DAILY)
+// product should have pricePerHour, pricePerDay (and optionally pricePerWeek)
+export const calculateRentalPrice = (product, startDate, endDate, rentalPeriodType = 'DAILY') => {
+  const periodType = (rentalPeriodType || 'DAILY').toUpperCase();
+  const isHourly = periodType === 'HOURLY';
+
+  if (isHourly) {
+    const hours = calculateRentalHours(startDate, endDate);
+    const pricePerHour = Number(product?.pricePerHour) || 0;
+    return hours * pricePerHour;
+  }
+
   const days = calculateRentalDays(startDate, endDate);
-  
-  // Use weekly rate if 7+ days
-  if (days >= 7 && product.pricePerWeek) {
+  // Use weekly rate if 7+ days and available
+  if (days >= 7 && product?.pricePerWeek) {
     const weeks = Math.floor(days / 7);
     const remainingDays = days % 7;
-    return (weeks * product.pricePerWeek) + (remainingDays * product.pricePerDay);
+    const pricePerDay = Number(product?.pricePerDay) || 0;
+    const pricePerWeek = Number(product?.pricePerWeek) || 0;
+    return weeks * pricePerWeek + remainingDays * pricePerDay;
   }
-  
-  return days * product.pricePerDay;
+
+  const pricePerDay = Number(product?.pricePerDay) || 0;
+  return days * pricePerDay;
 };
 
 // Calculate cart total
@@ -241,6 +262,7 @@ export default {
   formatDate,
   formatDateRange,
   calculateRentalDays,
+  calculateRentalHours,
   calculateRentalPrice,
   calculateCartTotal,
   generateOrderNumber,

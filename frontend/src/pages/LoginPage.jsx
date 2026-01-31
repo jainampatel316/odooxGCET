@@ -19,7 +19,7 @@ const LoginPage = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (!email || !password) {
       toast({
         title: "Error",
@@ -32,42 +32,26 @@ const LoginPage = () => {
     setIsLoading(true);
 
     try {
-      const response = await authAPI.login(email, password);
-      
-      // Response contains: { message, role }
-      const userRole = response.role?.toLowerCase(); // CUSTOMER -> customer, VENDOR -> vendor
-      
-      // Create user object for context (we don't get full user data from login, so we'll use what we have)
-      const userData = {
-        id: `user-${Date.now()}`, // Temporary ID, backend should ideally return user ID
-        name: email.split('@')[0], // Temporary name
-        email,
-        role: userRole,
-      };
+      const response = await login(email, password);
 
-      login(userData);
+      if (response && response.user) {
+        const userRole = response.user.role?.toLowerCase();
 
-      // Show success message
-      toast({
-        title: "Login successful!",
-        description: response.message || "You're now logged in.",
-      });
-
-      // Redirect based on role
-      if (userRole === 'vendor') {
-        navigate('/vendor');
-      } else if (userRole === 'customer') {
-        navigate(location.state?.from || '/dashboard');
-      } else {
-        // Fallback to dashboard
-        navigate('/dashboard');
+        // Redirect based on role
+        if (userRole === 'vendor') {
+          navigate('/vendor');
+        } else if (userRole === 'customer') {
+          navigate(location.state?.from || '/dashboard');
+        } else if (userRole === 'admin') {
+          navigate('/admin');
+        } else {
+          // Fallback to dashboard
+          navigate('/dashboard');
+        }
       }
     } catch (error) {
-      toast({
-        title: "Login failed",
-        description: error.message || "Invalid email or password. Please try again.",
-        variant: "destructive",
-      });
+      // Error toast is already shown in AppContext login function
+      console.error('Login error:', error);
     } finally {
       setIsLoading(false);
     }

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Search, Filter, Grid, List, ChevronDown, X, SlidersHorizontal } from 'lucide-react';
 import CustomerLayout from '../components/CustomerLayout';
 import ProductCard from '../components/ProductCard';
@@ -8,8 +8,20 @@ import { productAPI } from '../utils/api';
 import { mapBackendProductsToFrontend } from '../utils/productMapper';
 import { formatCurrency } from '../utils/helpers';
 import { toast } from '@/hooks/use-toast';
+import { useApp } from '../context/AppContext';
+
+// Remaining quantity = product stock minus already in cart for this product
+const getRemainingQuantity = (product, cart) => {
+  const available = Number(product.availableQuantity ?? product.quantity ?? product.quantityOnHand ?? 0);
+  const totalInCart = cart?.lines
+    ?.filter((l) => l.productId === product.id)
+    .reduce((sum, l) => sum + (l.quantity ?? 0), 0) ?? 0;
+  return Math.max(0, available - totalInCart);
+};
 
 const ProductListing = () => {
+  const navigate = useNavigate();
+  const { addToCart, user, cart } = useApp();
   const [searchParams, setSearchParams] = useSearchParams();
   const [products, setProducts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -156,22 +168,20 @@ const ProductListing = () => {
         });
 
         const response = await productAPI.getProducts(queryParams);
-        
-        if (response.success && response.data) {
-          const mappedProducts = mapBackendProductsToFrontend(response.data);
-          setProducts(mappedProducts);
-          
-          // Update pagination
-          if (response.pagination) {
-            setCurrentPage(response.pagination.currentPage || 1);
-            setTotalPages(response.pagination.totalPages || 1);
-            setTotalCount(response.pagination.totalCount || 0);
-          }
-        } else {
-          setProducts([]);
+        const rawProducts = response?.data ?? (Array.isArray(response) ? response : []);
+        const productList = Array.isArray(rawProducts) ? rawProducts : [];
+
+        setProducts(mapBackendProductsToFrontend(productList));
+        if (response?.pagination) {
+          setCurrentPage(response.pagination.currentPage || 1);
+          setTotalPages(response.pagination.totalPages || 1);
+          setTotalCount(response.pagination.totalCount ?? productList.length);
+        }
+
+        if (response?.success === false) {
           toast({
             title: "Error",
-            description: "Failed to load products. Please try again.",
+            description: response?.message || "Failed to load products. Please try again.",
             variant: "destructive",
           });
         }
@@ -574,23 +584,42 @@ const ProductListing = () => {
               </>
             ) : (
               <div className="space-y-4">
-                {products.map((product) => (
-                  <div key={product.id} className="flex gap-4 bg-card rounded-lg border p-4 hover:shadow-md transition-shadow">
-                    <img
-                      src={product.images?.[0] || '/placeholder.svg'}
-                      alt={product.name}
-                      className="w-32 h-24 object-cover rounded-lg bg-muted"
-                    />
-                    <div className="flex-1">
-                      <h3 className="font-semibold mb-1">{product.name}</h3>
-                      <p className="text-sm text-muted-foreground line-clamp-2 mb-2">{product.description}</p>
-                      <div className="flex items-center justify-between">
-                        <span className="text-lg font-bold text-primary">{formatCurrency(product.pricePerDay)}/day</span>
-                        <Button size="sm">Add to Cart</Button>
+                {products.map((product) => {
+                  const remaining = getRemainingQuantity(product, cart);
+                  return (
+                    <div key={product.id} className="flex gap-4 bg-card rounded-lg border p-4 hover:shadow-md transition-shadow">
+                      <img
+                        src={product.images?.[0] || product.imageUrl || '/placeholder.svg'}
+                        alt={product.name}
+                        className="w-32 h-24 object-cover rounded-lg bg-muted"
+                      />
+                      <div className="flex-1">
+                        <h3 className="font-semibold mb-1">{product.name}</h3>
+                        <p className="text-sm text-muted-foreground line-clamp-2 mb-2">{product.description}</p>
+                        <div className="flex items-center justify-between">
+                          <span className="text-lg font-bold text-primary">{formatCurrency(product.pricePerDay)}/day</span>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={async (e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (!user) {
+                                navigate('/login', { state: { from: `/products/${product.id}` } });
+                                return;
+                              }
+                              if (remaining <= 0) return;
+                              await addToCart(product, Math.min(1, remaining));
+                            }}
+                            disabled={remaining <= 0}
+                          >
+                            Add to Cart
+                          </Button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

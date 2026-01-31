@@ -66,8 +66,9 @@ export const processPickup = async (req, res) => {
         pickupRecord = await prisma.pickupRecord.create({
             data: {
                 orderId,
+                pickupNumber: `PICKUP-${Date.now()}`,
                 status: "IN_PROGRESS",
-                scheduledDate: order.lines[0].rentalStartDate, // fallback
+                scheduledDate: order.lines[0].rentalStartDate,
             }
         });
     }
@@ -85,8 +86,13 @@ export const processPickup = async (req, res) => {
     });
 
     // 4. Update Inventory Log (Move to "With Customer")
-    // Note: We log this for every line belonging to this vendor
     for (const line of order.lines) {
+        const product = await prisma.product.findUnique({
+            where: { id: line.productId },
+            select: { quantityOnHand: true },
+        });
+        const prevQty = product?.quantityOnHand ?? 0;
+        const newQty = Math.max(0, prevQty - line.quantity);
         await prisma.inventoryLog.create({
             data: {
                 productId: line.productId,
@@ -94,7 +100,8 @@ export const processPickup = async (req, res) => {
                 quantity: line.quantity,
                 referenceType: "order",
                 referenceId: orderId,
-                newQty: -line.quantity, // Decrease visual availability
+                previousQty: prevQty,
+                newQty,
                 notes: "Pickup completed",
                 createdBy: req.user.id
             }
@@ -143,6 +150,7 @@ export const processReturn = async (req, res) => {
         returnRecord = await prisma.returnRecord.create({
             data: {
                 orderId,
+                returnNumber: `RET-${Date.now()}`,
                 status: "IN_PROGRESS",
                 scheduledDate: order.lines[0].rentalEndDate,
             }
@@ -168,6 +176,12 @@ export const processReturn = async (req, res) => {
 
     // 3. Restore Inventory
     for (const line of order.lines) {
+        const product = await prisma.product.findUnique({
+            where: { id: line.productId },
+            select: { quantityOnHand: true },
+        });
+        const prevQty = product?.quantityOnHand ?? 0;
+        const newQty = prevQty + line.quantity;
         await prisma.inventoryLog.create({
             data: {
                 productId: line.productId,
@@ -175,7 +189,8 @@ export const processReturn = async (req, res) => {
                 quantity: line.quantity,
                 referenceType: "order",
                 referenceId: orderId,
-                newQty: line.quantity, // Restore availability
+                previousQty: prevQty,
+                newQty,
                 notes: "Item returned",
                 createdBy: req.user.id
             }

@@ -34,10 +34,14 @@ const CheckoutPage = () => {
 
   const [errors, setErrors] = useState({});
 
-  const startDate = cart.rentalStart ? new Date(cart.rentalStart) : null;
-  const endDate = cart.rentalEnd ? new Date(cart.rentalEnd) : null;
+  const cartLines = cart?.lines || cart?.items || [];
+  const startDate = cart?.rentalStart ? new Date(cart.rentalStart) : null;
+  const endDate = cart?.rentalEnd ? new Date(cart.rentalEnd) : null;
   const rentalDays = startDate && endDate ? calculateRentalDays(startDate, endDate) : 0;
-  const { subtotal, tax, total } = calculateCartTotal(cart.items, startDate, endDate);
+  const useBackendTotals = Array.isArray(cart?.lines) && cart.lines.length > 0;
+  const subtotal = useBackendTotals ? Number(cart?.subtotal ?? 0) : (calculateCartTotal(cart?.items || [], startDate, endDate).subtotal ?? 0);
+  const tax = useBackendTotals ? Number(cart?.taxAmount ?? 0) : (calculateCartTotal(cart?.items || [], startDate, endDate).tax ?? 0);
+  const total = useBackendTotals ? Number(cart?.totalAmount ?? 0) : (calculateCartTotal(cart?.items || [], startDate, endDate).total ?? 0);
   const securityDeposit = Math.round(subtotal * 0.5); // 50% security deposit
   const grandTotal = total + securityDeposit;
 
@@ -96,23 +100,24 @@ const CheckoutPage = () => {
         login(customerData);
       }
 
-      // Create quotation
+      const itemsForOrder = cartLines.map(line => ({
+        productId: line.productId,
+        productName: line.product?.name || 'Product',
+        quantity: line.quantity,
+        pricePerDay: line.unitPrice / (line.rentalDuration || 1),
+        days: line.rentalDuration || rentalDays,
+        total: Number(line.lineTotal) || 0,
+      }));
+
       const quotationId = generateId();
       const quotation = {
         id: quotationId,
         quotationNumber: generateQuotationNumber(),
         customerId,
         customerName: formData.name,
-        items: cart.items.map(item => ({
-          productId: item.productId,
-          productName: item.productName,
-          quantity: item.quantity,
-          pricePerDay: item.pricePerDay,
-          days: rentalDays,
-          total: item.pricePerDay * rentalDays * item.quantity,
-        })),
-        rentalStart: cart.rentalStart,
-        rentalEnd: cart.rentalEnd,
+        items: itemsForOrder,
+        rentalStart: cart?.rentalStart,
+        rentalEnd: cart?.rentalEnd,
         status: 'confirmed',
         subtotal,
         tax,
@@ -176,7 +181,7 @@ const CheckoutPage = () => {
       addInvoice(invoice);
 
       // Create reservations for each product
-      cart.items.forEach(item => {
+      cartLines.forEach(item => {
         addReservation({
           id: generateId(),
           productId: item.productId,
@@ -215,7 +220,7 @@ const CheckoutPage = () => {
     }
   };
 
-  if (cart.items.length === 0 && step !== 3) {
+  if (cartLines.length === 0 && step !== 3) {
     navigate('/cart');
     return null;
   }
@@ -580,19 +585,30 @@ const CheckoutPage = () => {
               
               {/* Items */}
               <div className="space-y-3 mb-6">
-                {cart.items.map((item) => (
-                  <div key={item.productId} className="flex gap-3">
-                    <img
-                      src={item.image || '/placeholder.svg'}
-                      alt={item.productName}
-                      className="w-16 h-16 object-cover rounded-lg bg-muted"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium truncate">{item.productName}</div>
-                      <div className="text-sm text-muted-foreground">Qty: {item.quantity}</div>
+                {cartLines.map((line) => {
+                  const product = line.product || {};
+                  const name = product.name || 'Product';
+                  const image = product.imageUrl || product.images?.[0] || '/placeholder.svg';
+                  return (
+                    <div key={line.id || line.productId} className="flex gap-3">
+                      <img
+                        src={image}
+                        alt={name}
+                        className="w-16 h-16 object-cover rounded-lg bg-muted"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">{name}</div>
+                        <div className="text-sm text-muted-foreground">
+                          Qty: {line.quantity}
+                          {line.rentalPeriodType && line.rentalDuration != null && (
+                            <span> · {line.rentalPeriodType === 'HOURLY' ? `${line.rentalDuration}h` : `${line.rentalDuration}d`}</span>
+                          )}
+                        </div>
+                        <div className="text-sm font-medium">{formatCurrency(Number(line.lineTotal) || 0)}</div>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               {/* Dates */}

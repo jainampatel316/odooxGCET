@@ -51,9 +51,10 @@ export const getProducts = async (req, res) => {
       where.vendorId = vendorId;
     }
 
-    // Rentable filter
-    if (isRentable !== undefined) {
-      where.isRentable = isRentable === 'true';
+    // Rentable filter: only restrict when explicitly "false" (show non-rentable only).
+    // When "true" or not sent, show all published products so listing is never empty due to this.
+    if (isRentable === 'false') {
+      where.isRentable = false;
     }
 
     // Status filter (for admin/vendor views, but customers only see PUBLISHED)
@@ -91,18 +92,17 @@ export const getProducts = async (req, res) => {
       }
     }
 
-    // Rental pricing filter
+    // Rental pricing filter: only apply when filtering by price range.
+    // Do NOT require rental pricing when only rentalPeriodType is sent (e.g. "DAILY"),
+    // otherwise products without RentalPricing rows (e.g. newly added) would be excluded.
     const rentalPricingWhere = {};
-    if (rentalPeriodType) {
-      rentalPricingWhere.periodType = rentalPeriodType;
-    }
     if (minRentalPrice || maxRentalPrice) {
+      if (rentalPeriodType) rentalPricingWhere.periodType = rentalPeriodType;
       rentalPricingWhere.price = {};
       if (minRentalPrice) rentalPricingWhere.price.gte = parseFloat(minRentalPrice);
       if (maxRentalPrice) rentalPricingWhere.price.lte = parseFloat(maxRentalPrice);
     }
 
-    // If rental pricing filters exist, add them to the where clause
     if (Object.keys(rentalPricingWhere).length > 0) {
       where.rentalPricing = {
         some: {
@@ -198,10 +198,11 @@ export const getProducts = async (req, res) => {
     let filteredProducts = products;
     if (attributeFilter && Object.keys(attributeFilter).length > 0) {
       filteredProducts = products.filter(product => {
+        const attrs = product.attributes || [];
         return Object.entries(attributeFilter).every(([categoryName, value]) => {
-          return product.attributes.some(attr => 
-            attr.category.name === categoryName && 
-            attr.value.value === value
+          return attrs.some(attr => 
+            attr?.category?.name === categoryName && 
+            attr?.value?.value === value
           );
         });
       });
@@ -209,10 +210,12 @@ export const getProducts = async (req, res) => {
 
     // Format products for response
     const formattedProducts = filteredProducts.map(product => {
-      // Group attributes by category
+      // Group attributes by category (guard for missing attributes relation)
       const productAttributes = {};
-      product.attributes.forEach(attr => {
-        productAttributes[attr.category.name] = attr.value.value;
+      (product.attributes || []).forEach(attr => {
+        if (attr?.category?.name != null && attr?.value?.value != null) {
+          productAttributes[attr.category.name] = attr.value.value;
+        }
       });
 
       return {

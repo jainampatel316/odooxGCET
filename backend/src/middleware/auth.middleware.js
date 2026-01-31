@@ -25,8 +25,11 @@ export const authenticateUser = (req, res, next) => {
     // Verify token
     const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
 
-    // Attach userId to request
-    req.user = decoded;
+    // Attach user to request (use id for controllers that expect req.user.id)
+    req.user = {
+      ...decoded,
+      id: decoded.userId || decoded.id,
+    };
 
     next();
   } catch (error) {

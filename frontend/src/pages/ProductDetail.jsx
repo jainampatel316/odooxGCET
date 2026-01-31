@@ -8,23 +8,40 @@ import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popove
 import { productAPI } from '../utils/api';
 import { mapBackendProductToFrontend } from '../utils/productMapper';
 import { useApp } from '../context/AppContext';
-import { formatCurrency, calculateRentalDays, calculateRentalPrice, formatDate } from '../utils/helpers';
+import { formatCurrency, calculateRentalDays, calculateRentalHours, calculateRentalPrice, formatDate } from '../utils/helpers';
 import { toast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
+
+// Remaining quantity = product stock minus already in cart for this product
+const getRemainingQuantity = (product, cart) => {
+  if (!product) return 0;
+  const available = Number(product.availableQuantity ?? product.quantity ?? product.quantityOnHand ?? 0);
+  const totalInCart = cart?.lines
+    ?.filter((l) => l.productId === product.id)
+    .reduce((sum, l) => sum + (l.quantity ?? 0), 0) ?? 0;
+  return Math.max(0, available - totalInCart);
+};
 
 const ProductDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { addToCart, updateCartDates, cart } = useApp();
+  const { user, addToCart, updateCartDates, cart } = useApp();
   
   const [product, setProduct] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [quantity, setQuantity] = useState(1);
+  const [rentalPeriodType, setRentalPeriodType] = useState('DAILY'); // HOURLY | DAILY
   const [startDate, setStartDate] = useState(cart.rentalStart ? new Date(cart.rentalStart) : null);
   const [endDate, setEndDate] = useState(cart.rentalEnd ? new Date(cart.rentalEnd) : null);
+  const [startTime, setStartTime] = useState('09:00');
+  const [endTime, setEndTime] = useState('17:00');
   const [disabledDates, setDisabledDates] = useState([]);
   const [availability, setAvailability] = useState(null);
   const [checkingAvailability, setCheckingAvailability] = useState(false);
+
+  const isHourly = rentalPeriodType === 'HOURLY';
+  const hasHourlyPricing = product && Number(product.pricePerHour) > 0;
+  const hasDailyPricing = product && Number(product.pricePerDay) > 0;
 
   // API: Get single product by ID
   // GET /products/products/:id
@@ -63,23 +80,35 @@ const ProductDetail = () => {
     }
   }, [id]);
 
+  // Build start/end datetimes for API (hourly: date+time, daily: date at midnight)
+  const getStartEndForApi = () => {
+    if (!startDate || !endDate) return { start: null, end: null };
+    if (isHourly) {
+      const start = new Date(`${startDate.toISOString().split('T')[0]}T${startTime}`);
+      const end = new Date(`${endDate.toISOString().split('T')[0]}T${endTime}`);
+      return { start, end };
+    }
+    const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  };
+
   // Check availability when dates change
-  // API 10: POST /products/products/check-availability
   useEffect(() => {
     const checkAvailability = async () => {
-      if (!product || !startDate || !endDate || !id) return;
+      const { start, end } = getStartEndForApi();
+      if (!product || !start || !end || end <= start || !id) return;
 
       setCheckingAvailability(true);
       try {
-        // API 10: Check product availability
-        // POST /products/products/check-availability
-        // Body: { productId, variantId (optional), startDate, endDate, quantity }
         const response = await productAPI.checkAvailability(
-          id, // productId (required)
-          null, // variantId (optional) - can be added later when variant selection is implemented
-          startDate.toISOString(), // startDate (required) - ISO string format
-          endDate.toISOString(),   // endDate (required) - ISO string format
-          quantity // quantity (default: 1)
+          id,
+          null,
+          start.toISOString(),
+          end.toISOString(),
+          quantity
         );
 
         if (response.success && response.data) {
@@ -87,45 +116,73 @@ const ProductDetail = () => {
           if (!response.data.isAvailable) {
             toast({
               title: "Not Available",
-              description: `Only ${response.data.availableQuantity} available for selected dates.`,
+              description: `Only ${response.data.availableQuantity} available for selected period.`,
               variant: "destructive",
             });
           }
         }
       } catch (error) {
         console.error('Failed to check availability:', error);
-        // Don't show error toast for availability checks
       } finally {
         setCheckingAvailability(false);
       }
     };
 
     checkAvailability();
-  }, [product, startDate, endDate, quantity, id]);
+  }, [product, startDate, endDate, startTime, endTime, isHourly, quantity, id]);
+
+  const remaining = product ? getRemainingQuantity(product, cart) : 0;
+
+  // Keep quantity in sync with remaining (e.g. after adding to cart)
+  useEffect(() => {
+    if (remaining >= 1 && quantity > remaining) {
+      setQuantity(remaining);
+    }
+  }, [remaining, quantity]);
 
   const handleQuantityChange = (delta) => {
-    const maxQty = availability?.availableQuantity || product?.availableQuantity || 1;
-    const newQty = Math.max(1, Math.min(quantity + delta, maxQty));
+    const stockMax = availability?.availableQuantity ?? product?.availableQuantity ?? 1;
+    const maxQty = Math.min(Number(stockMax) || 1, remaining || 1);
+    const effectiveMax = Math.max(1, maxQty);
+    const newQty = Math.max(1, Math.min(quantity + delta, effectiveMax));
     setQuantity(newQty);
   };
 
-  const handleAddToCart = () => {
-    if (!startDate || !endDate) {
+  const handleAddToCart = async () => {
+    const { start, end } = getStartEndForApi();
+    if (!start || !end || end <= start) {
       toast({
-        title: "Select dates",
-        description: "Please select rental start and end dates.",
+        title: "Select period",
+        description: isHourly
+          ? "Please select start and end date & time (end must be after start)."
+          : "Please select rental start and end dates.",
         variant: "destructive",
       });
       return;
     }
-    
-    addToCart(product, quantity);
-    updateCartDates(startDate.toISOString(), endDate.toISOString());
-    
-    toast({
-      title: "Added to cart",
-      description: `${product.name} has been added to your cart.`,
-    });
+    if (isHourly && (!product?.pricePerHour || Number(product.pricePerHour) <= 0)) {
+      toast({
+        title: "Hourly pricing not available",
+        description: "This product does not have hourly rental pricing.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!user) {
+      navigate('/login', { state: { from: `/products/${id}` } });
+      return;
+    }
+    if (remaining <= 0) {
+      toast({
+        title: "Cannot add",
+        description: "No more of this product available (out of stock or max already in cart).",
+        variant: "destructive",
+      });
+      return;
+    }
+    const qtyToAdd = Math.min(quantity, remaining);
+    await addToCart(product, qtyToAdd, start.toISOString(), end.toISOString(), rentalPeriodType);
+    updateCartDates(start.toISOString(), end.toISOString());
   };
 
   const handleRentNow = () => {
@@ -133,8 +190,12 @@ const ProductDetail = () => {
     navigate('/cart');
   };
 
-  const rentalDays = startDate && endDate ? calculateRentalDays(startDate, endDate) : 0;
-  const rentalPrice = product && startDate && endDate ? calculateRentalPrice(product, startDate, endDate) * quantity : 0;
+  const { start: quoteStart, end: quoteEnd } = getStartEndForApi();
+  const rentalDays = quoteStart && quoteEnd ? calculateRentalDays(quoteStart, quoteEnd) : 0;
+  const rentalHours = quoteStart && quoteEnd ? calculateRentalHours(quoteStart, quoteEnd) : 0;
+  const rentalPrice = product && quoteStart && quoteEnd
+    ? calculateRentalPrice(product, quoteStart, quoteEnd, rentalPeriodType) * quantity
+    : 0;
 
   if (isLoading) {
     return (
@@ -264,9 +325,40 @@ const ProductDetail = () => {
             {/* Date Selection */}
             <div className="mb-6">
               <h3 className="font-semibold mb-3">Select Rental Period</h3>
-              <div className="grid sm:grid-cols-2 gap-4">
+              {(hasHourlyPricing || hasDailyPricing) && (
+                <div className="mb-4">
+                  <label className="text-sm font-medium mb-2 block">Rent by</label>
+                  <div className="flex gap-3">
+                    {hasHourlyPricing && (
+                      <button
+                        type="button"
+                        onClick={() => setRentalPeriodType('HOURLY')}
+                        className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
+                          isHourly ? 'border-primary bg-primary/10 text-primary' : 'border-muted hover:border-primary/50'
+                        }`}
+                      >
+                        Hour (e.g. 3pm 3rd Feb → 4pm 4th Feb)
+                      </button>
+                    )}
+                    {hasDailyPricing && (
+                      <button
+                        type="button"
+                        onClick={() => setRentalPeriodType('DAILY')}
+                        className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
+                          !isHourly ? 'border-primary bg-primary/10 text-primary' : 'border-muted hover:border-primary/50'
+                        }`}
+                      >
+                        Day (e.g. 4th Feb → 5th Feb)
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+              <div className={`grid gap-4 ${isHourly ? 'sm:grid-cols-2' : 'sm:grid-cols-2'}`}>
                 <div>
-                  <label className="text-sm text-muted-foreground mb-1 block">Start Date</label>
+                  <label className="text-sm text-muted-foreground mb-1 block">
+                    {isHourly ? 'Start Date & Time' : 'Start Date'}
+                  </label>
                   <Popover>
                     <PopoverTrigger asChild>
                       <Button variant="outline" className="w-full justify-start text-left font-normal">
@@ -279,17 +371,27 @@ const ProductDetail = () => {
                         mode="single"
                         selected={startDate}
                         onSelect={setStartDate}
-                        disabled={(date) => 
-                          date < new Date() || 
+                        disabled={(date) =>
+                          date < new Date() ||
                           disabledDates.some(d => d.toDateString() === date.toDateString())
                         }
                         initialFocus
                       />
                     </PopoverContent>
                   </Popover>
+                  {isHourly && (
+                    <input
+                      type="time"
+                      value={startTime}
+                      onChange={(e) => setStartTime(e.target.value)}
+                      className="mt-2 w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    />
+                  )}
                 </div>
                 <div>
-                  <label className="text-sm text-muted-foreground mb-1 block">End Date</label>
+                  <label className="text-sm text-muted-foreground mb-1 block">
+                    {isHourly ? 'End Date & Time' : 'End Date'}
+                  </label>
                   <Popover>
                     <PopoverTrigger asChild>
                       <Button variant="outline" className="w-full justify-start text-left font-normal">
@@ -302,7 +404,7 @@ const ProductDetail = () => {
                         mode="single"
                         selected={endDate}
                         onSelect={setEndDate}
-                        disabled={(date) => 
+                        disabled={(date) =>
                           (startDate && date <= startDate) ||
                           disabledDates.some(d => d.toDateString() === date.toDateString())
                         }
@@ -310,14 +412,24 @@ const ProductDetail = () => {
                       />
                     </PopoverContent>
                   </Popover>
+                  {isHourly && (
+                    <input
+                      type="time"
+                      value={endTime}
+                      onChange={(e) => setEndTime(e.target.value)}
+                      className="mt-2 w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    />
+                  )}
                 </div>
               </div>
-              {startDate && endDate && (
+              {quoteStart && quoteEnd && quoteEnd > quoteStart && (
                 <div className="mt-3 p-3 bg-primary/5 rounded-lg">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm">
                       <Clock className="inline h-4 w-4 mr-1" />
-                      {rentalDays} day{rentalDays > 1 ? 's' : ''} rental
+                      {isHourly
+                        ? `${rentalHours} hour${rentalHours > 1 ? 's' : ''} rental`
+                        : `${rentalDays} day${rentalDays > 1 ? 's' : ''} rental`}
                     </span>
                     <span className="font-bold text-primary">{formatCurrency(rentalPrice)}</span>
                   </div>
@@ -326,7 +438,7 @@ const ProductDetail = () => {
                   )}
                   {availability && !checkingAvailability && (
                     <div className={`text-xs ${availability.isAvailable ? 'text-green-600' : 'text-destructive'}`}>
-                      {availability.isAvailable 
+                      {availability.isAvailable
                         ? `✓ ${availability.availableQuantity} available`
                         : `Only ${availability.availableQuantity} available`}
                     </div>
@@ -350,36 +462,52 @@ const ProductDetail = () => {
                   <span className="px-4 py-2 min-w-[3rem] text-center font-medium">{quantity}</span>
                   <button
                     onClick={() => handleQuantityChange(1)}
-                    disabled={quantity >= (availability?.availableQuantity || product.availableQuantity || 0)}
+                    disabled={quantity >= remaining || remaining <= 0}
                     className="p-3 hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Plus className="h-4 w-4" />
                   </button>
                 </div>
                 <span className="text-sm text-muted-foreground">
-                  {availability?.availableQuantity !== undefined 
-                    ? `${availability.availableQuantity} available${startDate && endDate ? ' for selected dates' : ''}`
-                    : `${product.availableQuantity || 0} in stock`}
+                  {remaining <= 0
+                    ? 'None available (out of stock or max in cart)'
+                    : availability?.availableQuantity !== undefined
+                      ? `${remaining} available to add${startDate && endDate ? ' for selected dates' : ''}`
+                      : `${remaining} available to add`}
                 </span>
               </div>
             </div>
 
-            {/* Action Buttons */}
+            {/* Action Buttons - disabled when remaining is 0 or period invalid */}
             <div className="flex gap-3 mb-8">
-              <Button 
-                size="lg" 
-                className="flex-1 gap-2" 
-                onClick={handleRentNow} 
-                disabled={!product || (availability && !availability.isAvailable) || (product.availableQuantity === 0 && !availability)}
+              <Button
+                size="lg"
+                className="flex-1 gap-2"
+                onClick={handleRentNow}
+                disabled={
+                  !product ||
+                  remaining <= 0 ||
+                  (availability && !availability.isAvailable) ||
+                  !quoteStart ||
+                  !quoteEnd ||
+                  quoteEnd <= quoteStart
+                }
               >
                 Rent Now
               </Button>
-              <Button 
-                size="lg" 
-                variant="outline" 
-                className="flex-1 gap-2" 
-                onClick={handleAddToCart} 
-                disabled={!product || (availability && !availability.isAvailable) || (product.availableQuantity === 0 && !availability)}
+              <Button
+                size="lg"
+                variant="outline"
+                className="flex-1 gap-2"
+                onClick={handleAddToCart}
+                disabled={
+                  !product ||
+                  remaining <= 0 ||
+                  (availability && !availability.isAvailable) ||
+                  !quoteStart ||
+                  !quoteEnd ||
+                  quoteEnd <= quoteStart
+                }
               >
                 <ShoppingCart className="h-5 w-5" />
                 Add to Cart

@@ -24,8 +24,11 @@ export const authenticateVendor = (req, res, next) => {
     // Verify token
     const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
 
-    // Attach user to request
-    req.user = decoded;
+    // Attach user to request (use id for controllers that expect req.user.id)
+    req.user = {
+      ...decoded,
+      id: decoded.userId || decoded.id,
+    };
 
     // 3. Check Role is VENDOR
     if (req.user.role !== "VENDOR") {

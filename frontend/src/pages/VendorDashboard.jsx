@@ -3,7 +3,9 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, Package, ShoppingCart, Truck, DollarSign, FileText, LogOut, Menu, Search, Filter } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { useApp } from '../context/AppContext';
-import { getProducts, getOrders, getInvoices, updateOrder, updateProduct } from '../utils/storage';
+import { getOrders, getInvoices, updateOrder } from '../utils/storage';
+import { vendorProductAPI } from '../utils/api';
+import AddProductModal from '../components/vendor/AddProductModal';
 import { formatCurrency, formatDate, getStatusBadgeClass } from '../utils/helpers';
 import { vendorAnalytics } from '../data/mockData';
 import { toast } from '@/hooks/use-toast';
@@ -39,6 +41,9 @@ const VendorDashboard = () => {
   const [newOrderData, setNewOrderData] = useState([]);
   const [newSelectedOrder, setNewSelectedOrder] = useState(null);
   const [isCreateOrderModalOpen, setIsCreateOrderModalOpen] = useState(false);
+  const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [productsLoading, setProductsLoading] = useState(false);
 
   useEffect(() => {
     // Initialize with mock data for the new view
@@ -46,18 +51,31 @@ const VendorDashboard = () => {
   }, []);
 
   useEffect(() => {
-    if (!user || user.role !== 'vendor') {
+    // Backend returns role as "VENDOR" (uppercase); check case-insensitively
+    if (!user || user.role?.toLowerCase() !== 'vendor') {
       navigate('/login');
       return;
     }
     loadData();
   }, [user, navigate]);
 
-  const loadData = () => {
+  const loadData = async () => {
+    if (!user) return;
     const vendorId = user.id;
-    setProducts(getProducts().filter(p => p.vendorId === vendorId || p.vendorId === 'vendor-1'));
     setOrders(getOrders().filter(o => o.vendorId === vendorId || o.vendorId === 'vendor-1'));
     setInvoices(getInvoices().filter(i => i.vendorId === vendorId || i.vendorId === 'vendor-1'));
+    setProductsLoading(true);
+    try {
+      const list = await vendorProductAPI.getVendorProducts();
+      const items = Array.isArray(list) ? list : list?.data ?? [];
+      setProducts(items);
+    } catch (err) {
+      console.error('Failed to load products:', err);
+      toast({ title: 'Error', description: 'Failed to load products', variant: 'destructive' });
+      setProducts([]);
+    } finally {
+      setProductsLoading(false);
+    }
   };
 
   const handleLogout = () => { logout(); navigate('/'); };
@@ -76,10 +94,16 @@ const VendorDashboard = () => {
     toast({ title: "Return completed", description: "Equipment has been returned successfully." });
   };
 
-  const togglePublish = (productId, currentStatus) => {
-    updateProduct(productId, { isPublished: !currentStatus });
-    loadData();
-    toast({ title: currentStatus ? "Product unpublished" : "Product published" });
+  const togglePublish = async (productId, currentStatus) => {
+    try {
+      await vendorProductAPI.updateProduct(productId, {
+        status: currentStatus ? 'DRAFT' : 'PUBLISHED',
+      });
+      await loadData();
+      toast({ title: currentStatus ? 'Product unpublished' : 'Product published' });
+    } catch (err) {
+      toast({ title: 'Error', description: err.message || 'Failed to update product', variant: 'destructive' });
+    }
   };
 
   const handleNewStatusChange = (orderId, newStatus) => {
@@ -323,35 +347,49 @@ const VendorDashboard = () => {
             <div className="space-y-4">
               <div className="flex justify-between items-center">
                 <h2 className="text-lg font-semibold">My Products ({products.length})</h2>
-                <Button className="gap-2">Add Product</Button>
+                <Button className="gap-2" onClick={() => { setSelectedProduct(null); setIsAddProductModalOpen(true); }}>Add Product</Button>
               </div>
               <div className="bg-card rounded-xl border overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead className="bg-muted/50"><tr>
                       <th className="text-left p-4 font-medium">Product</th>
-                      <th className="text-left p-4 font-medium">Price/Day</th>
+                      <th className="text-left p-4 font-medium">Price</th>
                       <th className="text-left p-4 font-medium">Stock</th>
                       <th className="text-left p-4 font-medium">Status</th>
                       <th className="text-left p-4 font-medium">Actions</th>
                     </tr></thead>
                     <tbody>
-                      {products.map((product) => (
-                        <tr key={product.id} className="border-t">
-                          <td className="p-4"><div className="flex items-center gap-3">
-                            <img src={product.images?.[0] || '/placeholder.svg'} className="w-12 h-12 rounded-lg object-cover bg-muted" alt={product.name} />
-                            <span className="font-medium">{product.name}</span>
-                          </div></td>
-                          <td className="p-4">{formatCurrency(product.pricePerDay)}</td>
-                          <td className="p-4">{product.availableQuantity}/{product.quantity}</td>
-                          <td className="p-4"><span className={`px-2 py-1 rounded text-xs ${product.isPublished ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{product.isPublished ? 'Published' : 'Draft'}</span></td>
-                          <td className="p-4">
-                            <Button variant="ghost" size="sm" onClick={() => togglePublish(product.id, product.isPublished)}>
-                              {product.isPublished ? 'Unpublish' : 'Publish'}
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
+                      {productsLoading ? (
+                        <tr><td colSpan={5} className="p-8 text-center text-muted-foreground">Loading products...</td></tr>
+                      ) : products.length === 0 ? (
+                        <tr><td colSpan={5} className="p-8 text-center text-muted-foreground">No products yet. Click Add Product to create one.</td></tr>
+                      ) : (
+                        products.map((product) => {
+                          const isPublished = product.status === 'PUBLISHED';
+                          const qty = Number(product.quantityOnHand) ?? 0;
+                          return (
+                            <tr
+                              key={product.id}
+                              className="border-t cursor-pointer hover:bg-muted/50 transition-colors"
+                              onClick={() => { setSelectedProduct(product); setIsAddProductModalOpen(true); }}
+                            >
+                              <td className="p-4"><div className="flex items-center gap-3">
+                                <img src={product.imageUrl || product.images?.[0] || '/placeholder.svg'} className="w-12 h-12 rounded-lg object-cover bg-muted" alt={product.name} />
+                                <span className="font-medium">{product.name}</span>
+                              </div></td>
+                              <td className="p-4">{formatCurrency(product.salesPrice)}</td>
+                              <td className="p-4">{qty}</td>
+                              <td className="p-4"><span className={`px-2 py-1 rounded text-xs ${isPublished ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{isPublished ? 'Published' : 'Draft'}</span></td>
+                              <td className="p-4" onClick={(e) => e.stopPropagation()}>
+                                <Button variant="ghost" size="sm" onClick={() => togglePublish(product.id, isPublished)}>
+                                  {isPublished ? 'Unpublish' : 'Publish'}
+                                </Button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -628,6 +666,17 @@ const VendorDashboard = () => {
         isOpen={isCreateOrderModalOpen}
         onClose={() => setIsCreateOrderModalOpen(false)}
         onCreateOrder={handleCreateOrder}
+      />
+
+      {/* Add / Edit Product Modal */}
+      <AddProductModal
+        open={isAddProductModalOpen}
+        onOpenChange={(open) => {
+          setIsAddProductModalOpen(open);
+          if (!open) setSelectedProduct(null);
+        }}
+        onSuccess={loadData}
+        product={selectedProduct}
       />
 
       {sidebarOpen && <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />}

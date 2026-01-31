@@ -1,21 +1,33 @@
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Star, Clock, ShoppingCart } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatCurrency } from '../utils/helpers';
 import { Button } from './ui/button';
-import { toast } from '@/hooks/use-toast';
+
+// Helper: remaining quantity = product stock minus already in cart for this product
+const getRemainingQuantity = (product, cart) => {
+  const available = Number(product.availableQuantity ?? product.quantity ?? product.quantityOnHand ?? 0);
+  const totalInCart = cart?.lines
+    ?.filter((l) => l.productId === product.id)
+    .reduce((sum, l) => sum + (l.quantity ?? 0), 0) ?? 0;
+  return Math.max(0, available - totalInCart);
+};
 
 const ProductCard = ({ product }) => {
-  const { addToCart } = useApp();
+  const navigate = useNavigate();
+  const { addToCart, cart, user } = useApp();
+  const remaining = getRemainingQuantity(product, cart);
 
-  const handleAddToCart = (e) => {
+  const handleAddToCart = async (e) => {
     e.preventDefault();
     e.stopPropagation();
-    addToCart(product, 1);
-    toast({
-      title: "Added to cart",
-      description: `${product.name} has been added to your cart.`,
-    });
+    if (!user) {
+      navigate('/login', { state: { from: `/products/${product.id}` } });
+      return;
+    }
+    if (remaining <= 0) return;
+    await addToCart(product, Math.min(1, remaining));
+    // Toast is shown by AppContext.addToCart
   };
 
   return (
@@ -30,17 +42,17 @@ const ProductCard = ({ product }) => {
           alt={product.name}
           className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
         />
-        {product.availableQuantity === 0 && (
+        {remaining === 0 && (
           <div className="absolute inset-0 bg-background/80 flex items-center justify-center">
             <span className="badge-overdue px-3 py-1 rounded-full text-sm font-medium">
               Out of Stock
             </span>
           </div>
         )}
-        {product.availableQuantity > 0 && product.availableQuantity <= 2 && (
+        {remaining > 0 && remaining <= 2 && (
           <div className="absolute top-2 left-2">
             <span className="badge-pending px-2 py-1 rounded text-xs font-medium">
-              Only {product.availableQuantity} left
+              Only {remaining} left
             </span>
           </div>
         )}
@@ -84,11 +96,11 @@ const ProductCard = ({ product }) => {
             </div>
           )}
 
-          {/* Add to Cart Button */}
+          {/* Add to Cart Button - disabled when no remaining quantity (stock minus already in cart) */}
           <Button 
             onClick={handleAddToCart}
             className="w-full gap-2"
-            disabled={product.availableQuantity === 0}
+            disabled={remaining <= 0}
           >
             <ShoppingCart className="h-4 w-4" />
             Add to Cart

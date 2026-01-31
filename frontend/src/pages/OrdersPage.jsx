@@ -4,20 +4,56 @@ import { Button } from '../components/ui/button';
 import OrdersKanbanView from '../components/orders/OrdersKanbanView';
 import OrdersListView from '../components/orders/OrdersListView';
 import OrderDetailModal from '../components/orders/OrderDetailModal';
-import { sampleRentalOrders, statusDisplayNames, statusColors } from '../data/mockData';
+import { statusDisplayNames, statusColors } from '../data/mockData';
 import { toast } from '@/hooks/use-toast';
+import { vendorOrderAPI } from '../utils/api';
+import { transformBackendOrders } from '../utils/orderTransform';
+import { useApp } from '../context/AppContext';
 
 const OrdersPage = () => {
+    const { user } = useApp();
     const [orders, setOrders] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
     const [viewMode, setViewMode] = useState('kanban'); // 'kanban' or 'list'
     const [selectedOrder, setSelectedOrder] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [filterStatus, setFilterStatus] = useState('all');
 
+    // Fetch orders from backend
     useEffect(() => {
-        // Load orders from mock data
-        setOrders(sampleRentalOrders);
-    }, []);
+        const fetchOrders = async () => {
+            setIsLoading(true);
+            try {
+                const response = await vendorOrderAPI.getVendorOrders();
+
+                if (response && Array.isArray(response)) {
+                    // Backend returns array directly
+                    const transformedOrders = transformBackendOrders(response);
+                    setOrders(transformedOrders);
+                } else if (response && response.data) {
+                    // Or response might have data property
+                    const transformedOrders = transformBackendOrders(response.data);
+                    setOrders(transformedOrders);
+                } else {
+                    setOrders([]);
+                }
+            } catch (error) {
+                console.error('Error fetching orders:', error);
+                toast({
+                    title: 'Error',
+                    description: error.message || 'Failed to load orders',
+                    variant: 'destructive',
+                });
+                setOrders([]);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        if (user) {
+            fetchOrders();
+        }
+    }, [user]);
 
     // Filter orders based on search and status filter
     const filteredOrders = orders.filter(order => {
@@ -32,42 +68,68 @@ const OrdersPage = () => {
     });
 
     const handleStatusChange = (orderId, newStatus) => {
+        // Note: Direct status updates are not supported by backend
+        // Status changes happen through pickup/return workflows
+        toast({
+            title: "Status Update",
+            description: "Status updates must be done through pickup/return workflows",
+            variant: "destructive",
+        });
+    };
+
+    // Handle Kanban drag-and-drop with backend persistence
+    const handleOrderDrop = async (orderId, newStatus) => {
+        // Note: Backend doesn't support direct status updates
+        // This is a limitation - status changes must happen through pickup/return workflows
+        // For now, we'll show a message and prevent the drop
+
+        toast({
+            title: "Status Update Not Available",
+            description: "Please use the Pickup or Return buttons to change order status",
+            variant: "destructive",
+        });
+
+        // In a real implementation with backend support, this would be:
+        /*
+        // Store original orders for rollback
+        const originalOrders = [...orders];
+        
+        // Optimistic update - update UI immediately
         const updatedOrders = orders.map(order => {
             if (order.id === orderId) {
-                const now = new Date().toISOString();
-                const updates = { status: newStatus };
-
-                // Update lifecycle dates based on new status
-                if (newStatus === 'sale_order' && !order.confirmedDate) {
-                    updates.confirmedDate = now;
-                } else if (newStatus === 'confirmed') {
-                    updates.confirmedDate = now;
-                } else if (newStatus === 'invoiced') {
-                    updates.invoicedDate = now;
-                } else if (newStatus === 'cancelled') {
-                    updates.cancelledDate = now;
-                }
-
-                // Update rental duration display
-                const statusToDuration = {
-                    'quotation': 'quotation',
-                    'sale_order': 'sold-order',
-                    'confirmed': 'confirmed',
-                    'invoiced': 'invoiced',
-                    'cancelled': 'cancelled',
-                };
-                updates.rentalDuration = statusToDuration[newStatus] || newStatus;
-
-                return { ...order, ...updates };
+                return { ...order, status: newStatus };
             }
             return order;
         });
-
         setOrders(updatedOrders);
-        toast({
-            title: "Order Updated",
-            description: `Order ${orderId} status changed to ${statusDisplayNames[newStatus] || newStatus}`,
-        });
+        
+        try {
+            // Call backend API
+            await vendorOrderAPI.updateOrderStatus(orderId, newStatus);
+            
+            // Refresh orders from backend to get latest state
+            const response = await vendorOrderAPI.getVendorOrders();
+            const transformedOrders = transformBackendOrders(
+                Array.isArray(response) ? response : response.data
+            );
+            setOrders(transformedOrders);
+            
+            toast({
+                title: "Order Updated",
+                description: `Order status changed successfully`,
+            });
+        } catch (error) {
+            // Rollback on error
+            setOrders(originalOrders);
+            
+            console.error('Error updating order status:', error);
+            toast({
+                title: "Update Failed",
+                description: error.message || "Failed to update order status",
+                variant: "destructive",
+            });
+        }
+        */
     };
 
     const handleExport = () => {
@@ -186,10 +248,29 @@ const OrdersPage = () => {
 
             {/* Main Content */}
             <main className="p-6">
-                {viewMode === 'kanban' ? (
+                {isLoading ? (
+                    <div className="flex items-center justify-center h-64">
+                        <div className="text-center">
+                            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+                            <p className="text-muted-foreground">Loading orders...</p>
+                        </div>
+                    </div>
+                ) : filteredOrders.length === 0 ? (
+                    <div className="flex items-center justify-center h-64">
+                        <div className="text-center">
+                            <p className="text-lg font-medium text-gray-900 mb-2">No orders found</p>
+                            <p className="text-muted-foreground">
+                                {searchQuery || filterStatus !== 'all'
+                                    ? 'Try adjusting your filters'
+                                    : 'Orders will appear here once created'}
+                            </p>
+                        </div>
+                    </div>
+                ) : viewMode === 'kanban' ? (
                     <OrdersKanbanView
                         orders={filteredOrders}
                         onOrderClick={setSelectedOrder}
+                        onOrderDrop={handleOrderDrop}
                     />
                 ) : (
                     <OrdersListView

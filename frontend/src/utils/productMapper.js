@@ -11,9 +11,9 @@ export const mapBackendProductToFrontend = (backendProduct) => {
   // Extract rental pricing from backend format
   // Backend uses: HOURLY, DAILY, WEEKLY, MONTHLY, CUSTOM (from Prisma schema)
   const rentalPricing = backendProduct.rentalPricing || [];
-  const pricePerHour = rentalPricing.find(p => p.periodType === 'HOURLY')?.price || 0;
-  const pricePerDay = rentalPricing.find(p => p.periodType === 'DAILY')?.price || backendProduct.salesPrice || 0;
-  const pricePerWeek = rentalPricing.find(p => p.periodType === 'WEEKLY')?.price || 0;
+  const pricePerHour = Number(rentalPricing.find(p => p.periodType === 'HOURLY')?.price) || 0;
+  const pricePerDay = Number(rentalPricing.find(p => p.periodType === 'DAILY')?.price) || Number(backendProduct.salesPrice) || 0;
+  const pricePerWeek = Number(rentalPricing.find(p => p.periodType === 'WEEKLY')?.price) || 0;
 
   // Get images - prefer images array, fallback to imageUrl
   const images = backendProduct.images && backendProduct.images.length > 0 

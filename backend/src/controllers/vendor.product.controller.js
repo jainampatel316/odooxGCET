@@ -29,6 +29,8 @@ export const createProduct = async (req, res) => {
       sku,
       costPrice,
       salesPrice,
+      hourlyPrice,
+      dailyPrice,
       isRentable,
       quantityOnHand,
       status, // DRAFT, PUBLISHED
@@ -53,7 +55,34 @@ export const createProduct = async (req, res) => {
       },
     });
 
-    res.status(201).json(product);
+    // Create rental pricing (HOURLY, DAILY) when provided
+    const pricingToCreate = [];
+    if (hourlyPrice != null && Number(hourlyPrice) >= 0) {
+      pricingToCreate.push({
+        productId: product.id,
+        periodType: "HOURLY",
+        periodValue: 1,
+        price: Number(hourlyPrice),
+      });
+    }
+    if (dailyPrice != null && Number(dailyPrice) >= 0) {
+      pricingToCreate.push({
+        productId: product.id,
+        periodType: "DAILY",
+        periodValue: 1,
+        price: Number(dailyPrice),
+      });
+    }
+    if (pricingToCreate.length > 0) {
+      await prisma.rentalPricing.createMany({ data: pricingToCreate });
+    }
+
+    const productWithPricing = await prisma.product.findUnique({
+      where: { id: product.id },
+      include: { rentalPricing: true },
+    });
+
+    res.status(201).json(productWithPricing);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Error creating product" });
@@ -64,7 +93,8 @@ export const createProduct = async (req, res) => {
 export const updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    const data = req.body;
+    const { hourlyPrice, dailyPrice, ...rest } = req.body;
+    const data = rest;
 
     // Ensure product belongs to this vendor
     const existing = await prisma.product.findFirst({
@@ -83,7 +113,38 @@ export const updateProduct = async (req, res) => {
       },
     });
 
-    res.json(product);
+    // Upsert rental pricing: remove existing HOURLY/DAILY for this product, then create new
+    await prisma.rentalPricing.deleteMany({
+      where: { productId: id, periodType: { in: ["HOURLY", "DAILY"] } },
+    });
+
+    const pricingToCreate = [];
+    if (hourlyPrice != null && Number(hourlyPrice) >= 0) {
+      pricingToCreate.push({
+        productId: id,
+        periodType: "HOURLY",
+        periodValue: 1,
+        price: Number(hourlyPrice),
+      });
+    }
+    if (dailyPrice != null && Number(dailyPrice) >= 0) {
+      pricingToCreate.push({
+        productId: id,
+        periodType: "DAILY",
+        periodValue: 1,
+        price: Number(dailyPrice),
+      });
+    }
+    if (pricingToCreate.length > 0) {
+      await prisma.rentalPricing.createMany({ data: pricingToCreate });
+    }
+
+    const productWithPricing = await prisma.product.findUnique({
+      where: { id },
+      include: { rentalPricing: true },
+    });
+
+    res.json(productWithPricing);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Error updating product" });

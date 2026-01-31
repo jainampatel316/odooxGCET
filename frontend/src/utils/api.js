@@ -24,13 +24,18 @@ const apiCall = async (endpoint, options = {}) => {
 
   try {
     const response = await fetch(url, defaultOptions);
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.message || 'An error occurred');
+    const contentType = response.headers.get('content-type');
+    let data = null;
+    if (contentType && contentType.includes('application/json')) {
+      const text = await response.text();
+      data = text ? JSON.parse(text) : null;
     }
 
-    return data;
+    if (!response.ok) {
+      throw new Error(data?.message || `Request failed (${response.status})`);
+    }
+
+    return data ?? {};
   } catch (error) {
     throw error;
   }
@@ -120,6 +125,181 @@ export const productAPI = {
         endDate,
         quantity,
       }),
+    });
+  },
+};
+
+// Cart & Quotation API functions
+export const cartAPI = {
+  // Get or create cart (quotation) for current user
+  getOrCreateCart: async () => {
+    return apiCall('/cart', {
+      method: 'GET',
+    });
+  },
+
+  // Add item to cart
+  addToCart: async (productId, variantId, quantity, rentalStartDate, rentalEndDate, rentalPeriodType) => {
+    return apiCall('/cart/add', {
+      method: 'POST',
+      body: JSON.stringify({
+        productId,
+        variantId,
+        quantity,
+        rentalStartDate,
+        rentalEndDate,
+        rentalPeriodType,
+      }),
+    });
+  },
+
+  // Update cart item quantity
+  updateCartItem: async (lineId, quantity) => {
+    return apiCall(`/cart/${lineId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ quantity }),
+    });
+  },
+
+  // Delete cart item
+  deleteCartItem: async (lineId) => {
+    return apiCall(`/cart/${lineId}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
+// Order API functions (Customer)
+export const orderAPI = {
+  // Checkout - convert quotation to order
+  checkout: async (quotationId, billingAddressId, shippingAddressId) => {
+    return apiCall('/checkout', {
+      method: 'POST',
+      body: JSON.stringify({
+        quotationId,
+        billingAddressId,
+        shippingAddressId,
+      }),
+    });
+  },
+
+  // Get my orders
+  getMyOrders: async () => {
+    return apiCall('/orders', {
+      method: 'GET',
+    });
+  },
+
+  // Get order details
+  getOrderDetails: async (orderId) => {
+    return apiCall(`/orders/${orderId}`, {
+      method: 'GET',
+    });
+  },
+};
+
+// Vendor Order API functions
+export const vendorOrderAPI = {
+  // Get vendor's orders
+  getVendorOrders: async () => {
+    return apiCall('/vendor/orders', {
+      method: 'GET',
+    });
+  },
+
+  // Process pickup
+  processPickup: async (orderId, pickupData) => {
+    return apiCall(`/vendor/orders/${orderId}/pickup`, {
+      method: 'POST',
+      body: JSON.stringify(pickupData),
+    });
+  },
+
+  // Process return
+  processReturn: async (orderId, returnData) => {
+    return apiCall(`/vendor/orders/${orderId}/return`, {
+      method: 'POST',
+      body: JSON.stringify(returnData),
+    });
+  },
+
+  // Note: Backend may not have a direct status update endpoint
+  // Status changes happen through pickup/return actions
+  // This is a placeholder for potential future implementation
+  updateOrderStatus: async (orderId, newStatus) => {
+    // This endpoint may not exist in backend
+    // Status updates are handled through pickup/return workflows
+    console.warn('Direct status update not implemented in backend');
+    throw new Error('Status updates must be done through pickup/return workflows');
+  },
+};
+
+// Vendor Invoice API functions
+export const vendorInvoiceAPI = {
+  // Get vendor's invoices
+  getVendorInvoices: async () => {
+    return apiCall('/vendor/invoices', {
+      method: 'GET',
+    });
+  },
+
+  // Create invoice for an order
+  createInvoice: async (orderId, dueDate) => {
+    return apiCall(`/vendor/orders/${orderId}/invoice`, {
+      method: 'POST',
+      body: JSON.stringify({ dueDate }),
+    });
+  },
+};
+
+// Vendor Dashboard API functions
+export const vendorDashboardAPI = {
+  // Get vendor statistics
+  getStats: async () => {
+    return apiCall('/vendor/stats', {
+      method: 'GET',
+    });
+  },
+};
+
+// Vendor Product API functions
+export const vendorProductAPI = {
+  // Get vendor's products
+  getVendorProducts: async () => {
+    return apiCall('/vendor/products', {
+      method: 'GET',
+    });
+  },
+
+  // Create product
+  createProduct: async (productData) => {
+    return apiCall('/vendor/products', {
+      method: 'POST',
+      body: JSON.stringify(productData),
+    });
+  },
+
+  // Update product
+  updateProduct: async (productId, productData) => {
+    return apiCall(`/vendor/products/${productId}`, {
+      method: 'PUT',
+      body: JSON.stringify(productData),
+    });
+  },
+
+  // Add product pricing
+  addProductPricing: async (productId, pricingData) => {
+    return apiCall(`/vendor/products/${productId}/pricing`, {
+      method: 'POST',
+      body: JSON.stringify(pricingData),
+    });
+  },
+
+  // Create product variant
+  createVariant: async (productId, variantData) => {
+    return apiCall(`/vendor/products/${productId}/variants`, {
+      method: 'POST',
+      body: JSON.stringify(variantData),
     });
   },
 };
