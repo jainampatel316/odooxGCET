@@ -6,6 +6,8 @@ import { Button } from '../components/ui/button';
 import { useApp } from '../context/AppContext';
 import { getOrders, getInvoices, getQuotations } from '../utils/storage';
 import { formatCurrency, formatDate, getStatusBadgeClass, getStatusDisplayText } from '../utils/helpers';
+// Product API is available in ../utils/api for future backend integration
+// import { productAPI } from '../utils/api';
 
 const CustomerDashboard = () => {
   const navigate = useNavigate();
@@ -44,13 +46,20 @@ Customer: ${invoice.customerName}
 GSTIN: ${invoice.customerGstin}
 
 Items:
-${invoice.items.map(item => `- ${item.productName} x${item.quantity} @ ${formatCurrency(item.pricePerDay)}/day for ${item.days} days = ${formatCurrency(item.total)}`).join('\n')}
+${(invoice.items || invoice.lines || []).map(item => {
+  const productName = item.productName || item.product?.name || 'Product';
+  const quantity = item.quantity || 1;
+  const price = item.pricePerDay || item.unitPrice || item.price || 0;
+  const days = item.days || item.rentalDays || 1;
+  const total = item.total || item.lineTotal || (price * days * quantity);
+  return `- ${productName} x${quantity} @ ${formatCurrency(price)}/day for ${days} days = ${formatCurrency(total)}`;
+}).join('\n')}
 
-Subtotal: ${formatCurrency(invoice.subtotal)}
-Tax (18% GST): ${formatCurrency(invoice.tax)}
-Security Deposit: ${formatCurrency(invoice.securityDeposit)}
-Total: ${formatCurrency(invoice.total)}
-Amount Paid: ${formatCurrency(invoice.amountPaid)}
+Subtotal: ${formatCurrency(invoice.subtotal || invoice.subTotal || 0)}
+Tax (18% GST): ${formatCurrency(invoice.tax || invoice.taxAmount || 0)}
+Security Deposit: ${formatCurrency(invoice.securityDeposit || 0)}
+Total: ${formatCurrency(invoice.total || invoice.totalAmount || 0)}
+Amount Paid: ${formatCurrency(invoice.amountPaid || invoice.paidAmount || 0)}
     `;
     
     const blob = new Blob([invoiceContent], { type: 'text/plain' });
@@ -67,9 +76,20 @@ Amount Paid: ${formatCurrency(invoice.amountPaid)}
   }
 
   const stats = [
-    { label: 'Active Rentals', value: orders.filter(o => o.status === 'confirmed' && o.pickupStatus === 'completed' && o.returnStatus === 'pending').length, icon: Package },
+    { 
+      label: 'Active Rentals', 
+      value: orders.filter(o => {
+        // Support both frontend and backend status formats
+        const status = (o.status || '').toLowerCase();
+        const isConfirmed = status === 'confirmed' || status === 'active';
+        const pickupStatus = (o.pickupStatus || o.pickupRecords?.[0]?.status || '').toLowerCase();
+        const returnStatus = (o.returnStatus || o.returnRecords?.[0]?.status || '').toLowerCase();
+        return isConfirmed && pickupStatus === 'completed' && (returnStatus === 'pending' || returnStatus === '');
+      }).length, 
+      icon: Package 
+    },
     { label: 'Total Orders', value: orders.length, icon: FileText },
-    { label: 'Total Spent', value: formatCurrency(orders.reduce((sum, o) => sum + o.total, 0)), icon: Clock },
+    { label: 'Total Spent', value: formatCurrency(orders.reduce((sum, o) => sum + (o.total || o.totalAmount || 0), 0)), icon: Clock },
   ];
 
   const tabs = [
@@ -161,16 +181,18 @@ Amount Paid: ${formatCurrency(invoice.amountPaid)}
                           </span>
                         </div>
                         <div className="space-y-1">
-                          {order.items.map((item, idx) => (
+                          {/* Support both frontend format (items) and backend format (lines) */}
+                          {(order.items || order.lines || []).map((item, idx) => (
                             <div key={idx} className="text-sm">
-                              {item.productName} × {item.quantity}
+                              {item.productName || item.product?.name || 'Product'} × {item.quantity}
                             </div>
                           ))}
                         </div>
                         <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground">
                           <span>
                             <Clock className="inline h-4 w-4 mr-1" />
-                            {formatDate(order.rentalStart)} - {formatDate(order.rentalEnd)}
+                            {/* Support both frontend format (rentalStart/rentalEnd) and backend format (startDate/endDate) */}
+                            {formatDate(order.rentalStart || order.startDate)} - {formatDate(order.rentalEnd || order.endDate)}
                           </span>
                         </div>
                       </div>

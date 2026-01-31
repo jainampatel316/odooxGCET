@@ -5,9 +5,10 @@ import CustomerLayout from '../components/CustomerLayout';
 import { Button } from '../components/ui/button';
 import { Calendar as CalendarComponent } from '../components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
-import { getProducts, getReservations } from '../utils/storage';
+import { productAPI } from '../utils/api';
+import { mapBackendProductToFrontend } from '../utils/productMapper';
 import { useApp } from '../context/AppContext';
-import { formatCurrency, calculateRentalDays, calculateRentalPrice, formatDate, getDisabledDates } from '../utils/helpers';
+import { formatCurrency, calculateRentalDays, calculateRentalPrice, formatDate } from '../utils/helpers';
 import { toast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 
@@ -22,27 +23,89 @@ const ProductDetail = () => {
   const [startDate, setStartDate] = useState(cart.rentalStart ? new Date(cart.rentalStart) : null);
   const [endDate, setEndDate] = useState(cart.rentalEnd ? new Date(cart.rentalEnd) : null);
   const [disabledDates, setDisabledDates] = useState([]);
+  const [availability, setAvailability] = useState(null);
+  const [checkingAvailability, setCheckingAvailability] = useState(false);
 
+  // API: Get single product by ID
+  // GET /products/products/:id
   useEffect(() => {
-    setIsLoading(true);
-    const timer = setTimeout(() => {
-      const products = getProducts();
-      const found = products.find(p => p.id === id);
-      setProduct(found);
-      
-      if (found) {
-        const reservations = getReservations();
-        const disabled = getDisabledDates(reservations, found.id);
-        setDisabledDates(disabled);
+    const fetchProduct = async () => {
+      setIsLoading(true);
+      try {
+        // Get single product by ID
+        const response = await productAPI.getProductById(id);
+        if (response.success && response.data) {
+          const mappedProduct = mapBackendProductToFrontend(response.data);
+          setProduct(mappedProduct);
+        } else {
+          setProduct(null);
+          toast({
+            title: "Error",
+            description: "Product not found.",
+            variant: "destructive",
+          });
+        }
+      } catch (error) {
+        console.error('Failed to fetch product:', error);
+        setProduct(null);
+        toast({
+          title: "Error",
+          description: error.message || "Failed to load product. Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoading(false);
       }
-      
-      setIsLoading(false);
-    }, 300);
-    return () => clearTimeout(timer);
+    };
+
+    if (id) {
+      fetchProduct();
+    }
   }, [id]);
 
+  // Check availability when dates change
+  // API 10: POST /products/products/check-availability
+  useEffect(() => {
+    const checkAvailability = async () => {
+      if (!product || !startDate || !endDate || !id) return;
+
+      setCheckingAvailability(true);
+      try {
+        // API 10: Check product availability
+        // POST /products/products/check-availability
+        // Body: { productId, variantId (optional), startDate, endDate, quantity }
+        const response = await productAPI.checkAvailability(
+          id, // productId (required)
+          null, // variantId (optional) - can be added later when variant selection is implemented
+          startDate.toISOString(), // startDate (required) - ISO string format
+          endDate.toISOString(),   // endDate (required) - ISO string format
+          quantity // quantity (default: 1)
+        );
+
+        if (response.success && response.data) {
+          setAvailability(response.data);
+          if (!response.data.isAvailable) {
+            toast({
+              title: "Not Available",
+              description: `Only ${response.data.availableQuantity} available for selected dates.`,
+              variant: "destructive",
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Failed to check availability:', error);
+        // Don't show error toast for availability checks
+      } finally {
+        setCheckingAvailability(false);
+      }
+    };
+
+    checkAvailability();
+  }, [product, startDate, endDate, quantity, id]);
+
   const handleQuantityChange = (delta) => {
-    const newQty = Math.max(1, Math.min(quantity + delta, product?.availableQuantity || 1));
+    const maxQty = availability?.availableQuantity || product?.availableQuantity || 1;
+    const newQty = Math.max(1, Math.min(quantity + delta, maxQty));
     setQuantity(newQty);
   };
 
@@ -176,21 +239,25 @@ const ProductDetail = () => {
             {/* Pricing */}
             <div className="bg-muted/50 rounded-xl p-6 mb-6">
               <h3 className="font-semibold mb-4">Rental Pricing</h3>
-              <div className="grid grid-cols-3 gap-4">
+              <div className={`grid gap-4 ${product.pricePerHour > 0 ? 'grid-cols-3' : 'grid-cols-2'}`}>
                 {product.pricePerHour > 0 && (
                   <div className="text-center p-3 bg-background rounded-lg">
                     <div className="text-2xl font-bold text-primary">{formatCurrency(product.pricePerHour)}</div>
                     <div className="text-sm text-muted-foreground">per hour</div>
                   </div>
                 )}
-                <div className="text-center p-3 bg-background rounded-lg border-2 border-primary">
-                  <div className="text-2xl font-bold text-primary">{formatCurrency(product.pricePerDay)}</div>
-                  <div className="text-sm text-muted-foreground">per day</div>
-                </div>
-                <div className="text-center p-3 bg-background rounded-lg">
-                  <div className="text-2xl font-bold text-primary">{formatCurrency(product.pricePerWeek)}</div>
-                  <div className="text-sm text-muted-foreground">per week</div>
-                </div>
+                {product.pricePerDay > 0 && (
+                  <div className="text-center p-3 bg-background rounded-lg border-2 border-primary">
+                    <div className="text-2xl font-bold text-primary">{formatCurrency(product.pricePerDay)}</div>
+                    <div className="text-sm text-muted-foreground">per day</div>
+                  </div>
+                )}
+                {product.pricePerWeek > 0 && (
+                  <div className="text-center p-3 bg-background rounded-lg">
+                    <div className="text-2xl font-bold text-primary">{formatCurrency(product.pricePerWeek)}</div>
+                    <div className="text-sm text-muted-foreground">per week</div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -246,12 +313,24 @@ const ProductDetail = () => {
                 </div>
               </div>
               {startDate && endDate && (
-                <div className="mt-3 p-3 bg-primary/5 rounded-lg flex items-center justify-between">
-                  <span className="text-sm">
-                    <Clock className="inline h-4 w-4 mr-1" />
-                    {rentalDays} day{rentalDays > 1 ? 's' : ''} rental
-                  </span>
-                  <span className="font-bold text-primary">{formatCurrency(rentalPrice)}</span>
+                <div className="mt-3 p-3 bg-primary/5 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm">
+                      <Clock className="inline h-4 w-4 mr-1" />
+                      {rentalDays} day{rentalDays > 1 ? 's' : ''} rental
+                    </span>
+                    <span className="font-bold text-primary">{formatCurrency(rentalPrice)}</span>
+                  </div>
+                  {checkingAvailability && (
+                    <div className="text-xs text-muted-foreground">Checking availability...</div>
+                  )}
+                  {availability && !checkingAvailability && (
+                    <div className={`text-xs ${availability.isAvailable ? 'text-green-600' : 'text-destructive'}`}>
+                      {availability.isAvailable 
+                        ? `✓ ${availability.availableQuantity} available`
+                        : `Only ${availability.availableQuantity} available`}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -271,24 +350,37 @@ const ProductDetail = () => {
                   <span className="px-4 py-2 min-w-[3rem] text-center font-medium">{quantity}</span>
                   <button
                     onClick={() => handleQuantityChange(1)}
-                    disabled={quantity >= product.availableQuantity}
+                    disabled={quantity >= (availability?.availableQuantity || product.availableQuantity || 0)}
                     className="p-3 hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Plus className="h-4 w-4" />
                   </button>
                 </div>
                 <span className="text-sm text-muted-foreground">
-                  {product.availableQuantity} available
+                  {availability?.availableQuantity !== undefined 
+                    ? `${availability.availableQuantity} available${startDate && endDate ? ' for selected dates' : ''}`
+                    : `${product.availableQuantity || 0} in stock`}
                 </span>
               </div>
             </div>
 
             {/* Action Buttons */}
             <div className="flex gap-3 mb-8">
-              <Button size="lg" className="flex-1 gap-2" onClick={handleRentNow} disabled={product.availableQuantity === 0}>
+              <Button 
+                size="lg" 
+                className="flex-1 gap-2" 
+                onClick={handleRentNow} 
+                disabled={!product || (availability && !availability.isAvailable) || (product.availableQuantity === 0 && !availability)}
+              >
                 Rent Now
               </Button>
-              <Button size="lg" variant="outline" className="flex-1 gap-2" onClick={handleAddToCart} disabled={product.availableQuantity === 0}>
+              <Button 
+                size="lg" 
+                variant="outline" 
+                className="flex-1 gap-2" 
+                onClick={handleAddToCart} 
+                disabled={!product || (availability && !availability.isAvailable) || (product.availableQuantity === 0 && !availability)}
+              >
                 <ShoppingCart className="h-5 w-5" />
                 Add to Cart
               </Button>

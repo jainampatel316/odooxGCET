@@ -4,17 +4,17 @@ import {
   getProductById,
   getFilterOptions,
   checkProductAvailability,
-} from '../controllers/productController.js';
-import { authenticate } from '../middleware/auth.js';
+} from '../controllers/product.controller.js';
+import { authenticateUser } from '../middleware/auth.middleware.js';
 
 const productRouter = express.Router();
 
 // Public routes (or authenticated customer routes)
-router.get('/products', getProducts);
-router.get('/products/filters', getFilterOptions);
-router.get('/products/:id', getProductById);
+productRouter.get('/products', getProducts);
+productRouter.get('/products/filters', getFilterOptions);
+productRouter.get('/products/:id', getProductById);
 
 // Authenticated routes
-router.post('/products/check-availability', authenticate, checkProductAvailability);
+productRouter.post('/products/check-availability', authenticateUser, checkProductAvailability);
 
 export default productRouter;

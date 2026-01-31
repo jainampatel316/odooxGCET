@@ -174,10 +174,6 @@ export const loginUser = async (req, res) => {
     const refreshToken = generateRefreshToken(user);
 
     // save refresh token in DB
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { refresh_token: refreshToken },
-    });
 
     res.cookie("accessToken", accessToken, {
       httpOnly: true,

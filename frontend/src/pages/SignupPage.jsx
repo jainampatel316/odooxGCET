@@ -4,7 +4,7 @@ import { Eye, EyeOff } from 'lucide-react';
 import CustomerLayout from '../components/CustomerLayout';
 import { Button } from '../components/ui/button';
 import { useApp } from '../context/AppContext';
-import { generateId } from '../data/mockData';
+import { authAPI } from '../utils/api';
 import { toast } from '@/hooks/use-toast';
 
 const SignupPage = () => {
@@ -128,36 +128,35 @@ const SignupPage = () => {
 
     setIsLoading(true);
 
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
     try {
-      const newUser = {
-        id: generateId(),
-        name: `${formData.firstName} ${formData.lastName}`,
+      // Prepare user data for backend
+      const userData = {
         email: formData.email,
-        role: userRole,
-        createdAt: new Date().toISOString(),
+        password: formData.password,
+        name: `${formData.firstName} ${formData.lastName}`,
+        role: userRole.toUpperCase(), // Backend expects CUSTOMER or VENDOR
       };
 
-      // Add vendor-specific data
+      // Add vendor-specific fields
       if (userRole === 'vendor') {
-        newUser.companyName = formData.companyName;
-        newUser.productCategory = formData.productCategory;
-        newUser.gstNumber = formData.gstNumber;
+        userData.companyName = formData.companyName;
+        userData.gstin = formData.gstNumber; // Backend expects 'gstin' not 'gstNumber'
       }
 
+      const response = await authAPI.register(userData);
+
+      // Show success message
       toast({
         title: "Account created successfully!",
-        description: `Welcome to RentFlow. Please login to continue.`,
+        description: response.message || "Welcome to RentFlow. Please login to continue.",
       });
 
-      // Redirect to login page instead of auto-login
+      // Redirect to login page
       navigate('/login');
     } catch (error) {
       toast({
-        title: "Error",
-        description: "Failed to create account. Please try again.",
+        title: "Registration failed",
+        description: error.message || "Failed to create account. Please try again.",
         variant: "destructive",
       });
     } finally {

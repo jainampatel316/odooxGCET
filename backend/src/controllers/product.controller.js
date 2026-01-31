@@ -1,4 +1,5 @@
 // ================= GET PRODUCTS WITH FILTERS =================
+import prisma from "../lib/prisma.js";
 export const getProducts = async (req, res) => {
   try {
     const {

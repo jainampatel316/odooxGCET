@@ -3,15 +3,40 @@ import { ArrowRight, Camera, Laptop, Music, Bike, PartyPopper, Wrench, Star, Shi
 import { Button } from '../components/ui/button';
 import CustomerLayout from '../components/CustomerLayout';
 import ProductCard from '../components/ProductCard';
-import { getProducts } from '../utils/storage';
+import { productAPI } from '../utils/api';
+import { mapBackendProductsToFrontend } from '../utils/productMapper';
 import { useEffect, useState } from 'react';
 
 const LandingPage = () => {
   const [featuredProducts, setFeaturedProducts] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const products = getProducts();
-    setFeaturedProducts(products.filter(p => p.isPublished).slice(0, 4));
+    const fetchFeaturedProducts = async () => {
+      setIsLoading(true);
+      try {
+        // API 1: Get products with pagination and sorting
+        // GET /products/products?page=1&limit=4&sortBy=createdAt&sortOrder=desc
+        const response = await productAPI.getProducts({
+          page: 1,
+          limit: 4,
+          sortBy: 'createdAt',
+          sortOrder: 'desc',
+        });
+        
+        if (response.success && response.data) {
+          const mappedProducts = mapBackendProductsToFrontend(response.data);
+          setFeaturedProducts(mappedProducts);
+        }
+      } catch (error) {
+        console.error('Failed to fetch featured products:', error);
+        setFeaturedProducts([]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchFeaturedProducts();
   }, []);
 
   const categories = [

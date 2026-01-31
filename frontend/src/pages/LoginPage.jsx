@@ -4,8 +4,7 @@ import { Eye, EyeOff, ArrowRight } from 'lucide-react';
 import CustomerLayout from '../components/CustomerLayout';
 import { Button } from '../components/ui/button';
 import { useApp } from '../context/AppContext';
-import { getUsers, getVendors } from '../utils/storage';
-import { sampleUsers, sampleVendors } from '../data/mockData';
+import { authAPI } from '../utils/api';
 import { toast } from '@/hooks/use-toast';
 
 const LoginPage = () => {
@@ -20,44 +19,55 @@ const LoginPage = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    if (!email || !password) {
+      toast({
+        title: "Error",
+        description: "Please enter both email and password",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsLoading(true);
 
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 800));
-
     try {
-      // Automatic role detection based on email
+      const response = await authAPI.login(email, password);
+      
+      // Response contains: { message, role }
+      const userRole = response.role?.toLowerCase(); // CUSTOMER -> customer, VENDOR -> vendor
+      
+      // Create user object for context (we don't get full user data from login, so we'll use what we have)
+      const userData = {
+        id: `user-${Date.now()}`, // Temporary ID, backend should ideally return user ID
+        name: email.split('@')[0], // Temporary name
+        email,
+        role: userRole,
+      };
 
-      // 1. Check for Admin (highest priority)
-      if (email.includes('admin')) {
-        login({ id: 'admin-1', name: 'Admin User', email, role: 'admin' });
-        toast({ title: "Welcome, Admin!", description: "Redirecting to admin dashboard." });
-        navigate('/admin');
-      }
-      // 2. Check for Vendor
-      else {
-        const vendor = sampleVendors.find(v => v.email === email);
-        if (vendor || email.includes('vendor')) {
-          login({ ...vendor, role: 'vendor', id: vendor?.id || 'vendor-demo', name: vendor?.companyName || 'Vendor User', email });
-          toast({ title: "Welcome, Vendor!", description: "Redirecting to vendor dashboard." });
-          navigate('/vendor');
-        }
-        // 3. Default to Customer
-        else {
-          const user = sampleUsers.find(u => u.email === email) || {
-            id: `user-${Date.now()}`,
-            name: email.split('@')[0],
-            email,
-            role: 'customer',
-            createdAt: new Date().toISOString(),
-          };
-          login(user);
-          toast({ title: "Welcome back!", description: "You're now logged in." });
-          navigate(location.state?.from || '/dashboard');
-        }
+      login(userData);
+
+      // Show success message
+      toast({
+        title: "Login successful!",
+        description: response.message || "You're now logged in.",
+      });
+
+      // Redirect based on role
+      if (userRole === 'vendor') {
+        navigate('/vendor');
+      } else if (userRole === 'customer') {
+        navigate(location.state?.from || '/dashboard');
+      } else {
+        // Fallback to dashboard
+        navigate('/dashboard');
       }
     } catch (error) {
-      toast({ title: "Error", description: "Login failed. Please try again.", variant: "destructive" });
+      toast({
+        title: "Login failed",
+        description: error.message || "Invalid email or password. Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setIsLoading(false);
     }
@@ -121,19 +131,6 @@ const LoginPage = () => {
                 {isLoading ? 'Signing in...' : 'Sign In'}
               </Button>
             </form>
-
-            {/* Demo Credentials */}
-            <div className="mt-6 p-4 bg-muted/50 rounded-lg">
-              <p className="text-sm font-medium mb-2">Demo Credentials:</p>
-              <p className="text-xs text-muted-foreground mb-2">
-                Your role is automatically detected based on your email address.
-              </p>
-              <div className="text-xs text-muted-foreground space-y-1">
-                <p><strong>Customer:</strong> john@example.com / any password</p>
-                <p><strong>Vendor:</strong> contact@progear.com / any password</p>
-                <p><strong>Admin:</strong> admin@rentflow.com / any password</p>
-              </div>
-            </div>
           </div>
 
           <p className="text-center mt-6 text-muted-foreground">
