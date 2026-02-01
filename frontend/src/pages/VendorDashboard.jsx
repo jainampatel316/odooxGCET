@@ -15,11 +15,10 @@ import InvoiceViewModal from '../components/vendor/InvoiceViewModal';
 
 // New Orders Components
 import OrdersKanbanView from '../components/orders/OrdersKanbanView';
-import OrdersListView from '../components/orders/OrdersListView';
 import NewOrderDetailModal from '../components/orders/OrderDetailModal';
 import CreateOrderModal from '../components/orders/CreateOrderModal';
 import { sampleRentalOrders, statusDisplayNames as newStatusNames, statusColors as newStatusColors } from '../data/mockData';
-import { LayoutGrid, List } from 'lucide-react';
+
 
 const VendorDashboard = () => {
   const navigate = useNavigate();
@@ -37,7 +36,6 @@ const VendorDashboard = () => {
   const [searchQuery, setSearchQuery] = useState('');
 
   // New Orders State
-  const [viewMode, setViewMode] = useState('kanban');
   const [newOrderData, setNewOrderData] = useState([]);
   const [newSelectedOrder, setNewSelectedOrder] = useState(null);
   const [isCreateOrderModalOpen, setIsCreateOrderModalOpen] = useState(false);
@@ -496,24 +494,6 @@ const VendorDashboard = () => {
                 </div>
 
                 <div className="flex gap-2 w-full sm:w-auto justify-between sm:justify-end">
-                  {/* View Switcher */}
-                  <div className="flex bg-muted p-1 rounded-lg">
-                    <button
-                      onClick={() => setViewMode('kanban')}
-                      className={`p-2 rounded transition-all ${viewMode === 'kanban' ? 'bg-white shadow-sm text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-                      title="Kanban View"
-                    >
-                      <LayoutGrid className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => setViewMode('list')}
-                      className={`p-2 rounded transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-                      title="List View"
-                    >
-                      <List className="w-4 h-4" />
-                    </button>
-                  </div>
-
                   {/* New Order Button */}
                   <Button
                     onClick={() => setIsCreateOrderModalOpen(true)}
@@ -526,15 +506,11 @@ const VendorDashboard = () => {
 
               {/* Content */}
               <div className="h-full min-h-[500px]">
-                {viewMode === 'kanban' ? (
-                  <OrdersKanbanView
-                    orders={filteredNewOrders}
-                    onOrderClick={setSelectedOrder}
-                    onOrderDrop={handleNewStatusChange}
-                  />
-                ) : (
-                  <OrdersListView orders={filteredNewOrders} onOrderClick={setSelectedOrder} />
-                )}
+                <OrdersKanbanView
+                  orders={filteredNewOrders}
+                  onOrderClick={setSelectedOrder}
+                  onOrderDrop={handleNewStatusChange}
+                />
               </div>
             </div>
           )}

@@ -10,9 +10,31 @@ const InvoiceViewModal = ({ invoice, onClose }) => {
     };
 
     const handleDownload = () => {
-        // UI-only download action
-        alert('Invoice download functionality - UI only demo');
+        const element = document.getElementById('invoice-content');
+        if (!element) return;
+
+        const opt = {
+            margin: [0.5, 0.5],
+            filename: `Invoice-${invoice.invoiceNumber}.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: {
+                scale: 1.5,
+                useCORS: true,
+                letterRendering: true
+            },
+            jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' },
+            pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+        };
+
+        // Standard import might be tricky in some environments, so we'll use a dynamic import or ensure it's available
+        import('html2pdf.js').then(html2pdf => {
+            html2pdf.default().from(element).set(opt).save();
+        }).catch(err => {
+            console.error('Failed to load html2pdf:', err);
+            alert('Failed to generate PDF. Please try again.');
+        });
     };
+
 
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -36,7 +58,8 @@ const InvoiceViewModal = ({ invoice, onClose }) => {
                 </div>
 
                 {/* Invoice Content */}
-                <div className="p-8 print:p-12">
+                <div id="invoice-content" className="p-8 print:p-12 bg-white">
+
                     {/* Vendor Header */}
                     <div className="border-b pb-6 mb-6">
                         <div className="flex items-start justify-between">
@@ -97,8 +120,8 @@ const InvoiceViewModal = ({ invoice, onClose }) => {
                                 <div className="flex justify-between text-sm">
                                     <span className="text-muted-foreground">Payment Status:</span>
                                     <span className={`px-2 py-0.5 rounded text-xs font-medium ${invoice.status === 'paid' ? 'bg-green-100 text-green-700' :
-                                            invoice.status === 'partial' ? 'bg-yellow-100 text-yellow-700' :
-                                                'bg-red-100 text-red-700'
+                                        invoice.status === 'partial' ? 'bg-yellow-100 text-yellow-700' :
+                                            'bg-red-100 text-red-700'
                                         }`}>
                                         {invoice.status.toUpperCase()}
                                     </span>
@@ -181,7 +204,8 @@ const InvoiceViewModal = ({ invoice, onClose }) => {
                             </div>
                             <div className="flex justify-between text-sm bg-green-50 p-2 rounded">
                                 <span className="text-green-700">Amount Paid</span>
-                                <span className="text-green-700 font-medium">{formatCurrency(invoice.amountPaid)}</span>
+                                <span className="text-green-700 font-medium">{formatCurrency(Number(invoice.amountPaid || 0))}</span>
+
                             </div>
                             {invoice.balanceDue > 0 && (
                                 <div className="flex justify-between text-sm bg-red-50 p-2 rounded">

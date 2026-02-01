@@ -1,7 +1,7 @@
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+import prisma from '../lib/prisma.js';
 
-exports.createPaymentIntent = async (req, res) => {
+export const createPaymentIntent = async (req, res) => {
+
     // Integration with Stripe/Razorpay would happen here
     const { orderId, amount, method } = req.body;
     
@@ -29,7 +29,8 @@ exports.createPaymentIntent = async (req, res) => {
     res.json(payment);
 };
 
-exports.getInvoices = async (req, res) => {
+export const getInvoices = async (req, res) => {
+
     const invoices = await prisma.invoice.findMany({
         where: { customerId: req.user.id },
         orderBy: { createdAt: 'desc' }
@@ -37,7 +38,8 @@ exports.getInvoices = async (req, res) => {
     res.json(invoices);
 };
 
-exports.downloadInvoice = async (req, res) => {
+export const downloadInvoice = async (req, res) => {
+
     const { id } = req.params;
     const invoice = await prisma.invoice.findUnique({
         where: { id },

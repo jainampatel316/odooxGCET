@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { Search, LayoutGrid, List, Download, Plus } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import OrdersKanbanView from '../components/orders/OrdersKanbanView';
-import OrdersListView from '../components/orders/OrdersListView';
 import OrderDetailModal from '../components/orders/OrderDetailModal';
 import { statusDisplayNames, statusColors } from '../data/mockData';
 import { toast } from '@/hooks/use-toast';
@@ -14,7 +13,6 @@ const OrdersPage = () => {
     const { user } = useApp();
     const [orders, setOrders] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [viewMode, setViewMode] = useState('kanban'); // 'kanban' or 'list'
     const [selectedOrder, setSelectedOrder] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [filterStatus, setFilterStatus] = useState('all');
@@ -226,23 +224,6 @@ const OrdersPage = () => {
                         </select>
                     </div>
 
-                    {/* View Switcher */}
-                    <div className="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
-                        <button
-                            onClick={() => setViewMode('kanban')}
-                            className={`p-2 rounded ${viewMode === 'kanban' ? 'bg-white shadow-sm' : 'text-gray-600'}`}
-                            title="Kanban View"
-                        >
-                            <LayoutGrid className="h-4 w-4" />
-                        </button>
-                        <button
-                            onClick={() => setViewMode('list')}
-                            className={`p-2 rounded ${viewMode === 'list' ? 'bg-white shadow-sm' : 'text-gray-600'}`}
-                            title="List View"
-                        >
-                            <List className="h-4 w-4" />
-                        </button>
-                    </div>
                 </div>
             </div>
 
@@ -266,44 +247,28 @@ const OrdersPage = () => {
                             </p>
                         </div>
                     </div>
-                ) : viewMode === 'kanban' ? (
+                ) : (
                     <OrdersKanbanView
                         orders={filteredOrders}
                         onOrderClick={setSelectedOrder}
                         onOrderDrop={handleOrderDrop}
                     />
-                ) : (
-                    <OrdersListView
-                        orders={filteredOrders}
-                        onOrderClick={setSelectedOrder}
-                    />
                 )}
             </main>
 
-            {/* Status Legend (for List View) */}
-            {viewMode === 'list' && (
-                <div className="fixed bottom-6 left-6 bg-white rounded-lg border border-gray-200 p-4 shadow-lg">
-                    <div className="text-sm font-semibold mb-3">Rental Status</div>
-                    <div className="space-y-2">
-                        {Object.entries(statusColors).map(([key, colors]) => (
-                            <div key={key} className="flex items-center gap-2">
-                                <div className={`w-4 h-4 rounded ${colors.bg}`}></div>
-                                <span className="text-xs">{statusDisplayNames[key]}</span>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
+
 
             {/* Order Detail Modal */}
-            {selectedOrder && (
-                <OrderDetailModal
-                    order={selectedOrder}
-                    onClose={() => setSelectedOrder(null)}
-                    onStatusChange={handleStatusChange}
-                />
-            )}
-        </div>
+            {
+                selectedOrder && (
+                    <OrderDetailModal
+                        order={selectedOrder}
+                        onClose={() => setSelectedOrder(null)}
+                        onStatusChange={handleStatusChange}
+                    />
+                )
+            }
+        </div >
     );
 };
 

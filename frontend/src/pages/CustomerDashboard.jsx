@@ -67,42 +67,48 @@ const CustomerDashboard = () => {
     fetchInvoices();
   }, [user]);
 
-  const handleDownloadInvoice = (invoice) => {
-    const items = invoice.items || invoice.lines || invoice.order?.lines || [];
-    const invoiceContent = `
-INVOICE: ${invoice.invoiceNumber}
-Date: ${formatDate(invoice.invoiceDate || invoice.createdAt)}
-Order: ${invoice.order?.orderNumber || invoice.orderId || '—'}
+  const handleDownloadInvoice = async (invoice) => {
+    let element = document.getElementById('customer-invoice-content');
 
-Items:
-${items.map((item) => {
-  const name = item.productName || item.product?.name || 'Product';
-  const qty = item.quantity ?? 1;
-  const tot = Number(item.lineTotal ?? item.total ?? 0);
-  return `- ${name} x${qty} = ${formatCurrency(tot)}`;
-}).join('\n')}
+    const triggerDownload = (el, invNum) => {
+      import('html2pdf.js').then(html2pdf => {
+        const opt = {
+          margin: [0.5, 0.5],
+          filename: `Invoice-${invNum}.pdf`,
+          image: { type: 'jpeg', quality: 0.98 },
+          html2canvas: {
+            scale: 1.5,
+            useCORS: true,
+            letterRendering: true
+          },
+          jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' },
+          pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+        };
+        html2pdf.default().from(el).set(opt).save();
+      });
 
-Subtotal: ${formatCurrency(Number(invoice.subtotal ?? invoice.totalAmount ?? 0))}
-Tax: ${formatCurrency(Number(invoice.taxAmount ?? 0))}
-Total: ${formatCurrency(Number(invoice.totalAmount ?? invoice.total ?? 0))}
-Amount Paid: ${formatCurrency(Number(invoice.paidAmount ?? 0))}
-    `;
-    const blob = new Blob([invoiceContent], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${invoice.invoiceNumber}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+    };
+
+    if (!element || selectedInvoice?.id !== invoice.id) {
+      setSelectedInvoice(invoice);
+      // Wait for modal to render
+      setTimeout(() => {
+        const el = document.getElementById('customer-invoice-content');
+        if (el) triggerDownload(el, invoice.invoiceNumber);
+      }, 300);
+    } else {
+      triggerDownload(element, invoice.invoiceNumber);
+    }
   };
+
 
   if (!user) {
     return null;
   }
 
   const stats = [
-    { 
-      label: 'Active Rentals', 
+    {
+      label: 'Active Rentals',
       value: orders.filter(o => {
         // Support both frontend and backend status formats
         const status = (o.status || '').toLowerCase();
@@ -110,8 +116,8 @@ Amount Paid: ${formatCurrency(Number(invoice.paidAmount ?? 0))}
         const pickupStatus = (o.pickupStatus || o.pickupRecords?.[0]?.status || '').toLowerCase();
         const returnStatus = (o.returnStatus || o.returnRecords?.[0]?.status || '').toLowerCase();
         return isConfirmed && pickupStatus === 'completed' && (returnStatus === 'pending' || returnStatus === '');
-      }).length, 
-      icon: Package 
+      }).length,
+      icon: Package
     },
     { label: 'Total Orders', value: orders.length, icon: FileText },
     { label: 'Total Spent', value: formatCurrency(orders.reduce((sum, o) => sum + (o.total || o.totalAmount || 0), 0)), icon: Clock },
@@ -171,11 +177,10 @@ Amount Paid: ${formatCurrency(Number(invoice.paidAmount ?? 0))}
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`pb-4 px-1 font-medium text-sm whitespace-nowrap transition-colors ${
-                  activeTab === tab.id
-                    ? 'border-b-2 border-primary text-primary'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
+                className={`pb-4 px-1 font-medium text-sm whitespace-nowrap transition-colors ${activeTab === tab.id
+                  ? 'border-b-2 border-primary text-primary'
+                  : 'text-muted-foreground hover:text-foreground'
+                  }`}
               >
                 {tab.label}
                 {tab.count !== null && (
@@ -403,7 +408,8 @@ Amount Paid: ${formatCurrency(Number(invoice.paidAmount ?? 0))}
                 <Button variant="ghost" size="sm" onClick={() => setSelectedInvoice(null)}>Close</Button>
               </div>
             </div>
-            <div className="p-6 space-y-4">
+            <div id="customer-invoice-content" className="p-6 space-y-4 bg-white">
+
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div><span className="text-muted-foreground">Date:</span> {formatDate(selectedInvoice.invoiceDate || selectedInvoice.createdAt)}</div>
                 <div><span className="text-muted-foreground">Order:</span> #{selectedInvoice.order?.orderNumber || selectedInvoice.orderId}</div>
