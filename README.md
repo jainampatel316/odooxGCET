@@ -65,7 +65,7 @@ The system supports **role-based access** for **Customers, Vendors, and Admins**
   * Company details
   * GSTIN (mandatory for invoicing)
 * Forgot password with email verification
-* Coupon code support during signup
+
 
 ---
 
@@ -202,10 +202,10 @@ Draft → Sent → Confirmed
 
 ---
 
-## 📦 Deliverables (Hackathon Ready)
+## 📦 Deliverables 
 
-✔ Functional rental flow (Quotation → Order → Invoice → Return)
-✔ Website + Backend integration
+✔ Functional rental flow (Quotation → Rental Order → Invoice → Return)
+✔ Website + Backend integration + DataBase
 ✔ Role-based access control
 ✔ User based dashboard/report
 ✔ Clean, business-aligned UI
@@ -243,9 +243,5 @@ npm run dev
 
 ---
 
-## 👩‍💻 Contributors
 
-Built with 💙 during a hackathon to demonstrate **production-grade system design**.
-
----
 
