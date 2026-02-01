@@ -19,6 +19,7 @@ router.post("/products", productController.createProduct);
 router.put("/products/:id", productController.updateProduct);
 router.post("/products/:productId/pricing", productController.addProductPricing);
 router.post("/products/:productId/variants", productController.createVariant);
+router.get("/products/:productId/inventory-history", productController.getProductInventoryHistory);
 
 // --- Orders ---
 // Get orders that contain my products

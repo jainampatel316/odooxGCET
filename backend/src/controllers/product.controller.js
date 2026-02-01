@@ -1,5 +1,7 @@
 // ================= GET PRODUCTS WITH FILTERS =================
 import prisma from "../lib/prisma.js";
+import { getAvailableInventory } from '../services/inventory.service.js';
+
 export const getProducts = async (req, res) => {
   try {
     const {
@@ -501,50 +503,44 @@ export const checkProductAvailability = async (req, res) => {
       });
     }
 
-    // Get product or variant inventory
-    let availableQuantity;
+    // Use inventory service to get available quantity
+    const availableQuantity = await getAvailableInventory(
+      productId,
+      variantId,
+      start,
+      end
+    );
+
+    // Get total stock for reference
+    let totalStock;
     if (variantId) {
       const variant = await prisma.productVariant.findUnique({
         where: { id: variantId },
         select: { quantityOnHand: true },
       });
-      availableQuantity = variant?.quantityOnHand || 0;
+      totalStock = variant?.quantityOnHand || 0;
     } else {
       const product = await prisma.product.findUnique({
         where: { id: productId },
         select: { quantityOnHand: true },
       });
-      availableQuantity = product?.quantityOnHand || 0;
+      totalStock = product?.quantityOnHand || 0;
     }
 
-    // Get reserved quantities for the date range
-    const reservations = await prisma.reservation.findMany({
-      where: {
-        productId,
-        ...(variantId && { variantId }),
-        status: { in: ['PENDING', 'ACTIVE'] },
-        OR: [
-          {
-            startDate: { lte: end },
-            endDate: { gte: start },
-          },
-        ],
-      },
-      select: { quantity: true },
-    });
-
-    const reservedQuantity = reservations.reduce((sum, res) => sum + res.quantity, 0);
-    const actualAvailable = availableQuantity - reservedQuantity;
-    const isAvailable = actualAvailable >= quantity;
+    const reservedQuantity = totalStock - availableQuantity;
+    const isAvailable = availableQuantity >= quantity;
 
     return res.status(200).json({
       success: true,
       data: {
         isAvailable,
         requestedQuantity: quantity,
-        availableQuantity: Math.max(0, actualAvailable),
-        totalStock: availableQuantity,
+        availableQuantity: Math.max(0, availableQuantity),
+        totalStock,
         reservedQuantity,
+        message: isAvailable 
+          ? `${availableQuantity} units available for your selected dates`
+          : `Only ${availableQuantity} units available. ${quantity - availableQuantity} more needed.`
       },
     });
   } catch (error) {

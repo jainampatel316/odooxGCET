@@ -64,7 +64,7 @@ const OrdersKanbanView = ({ orders, onOrderClick, onOrderDrop }) => {
 
     return (
         <DragDropContext onDragEnd={handleDragEnd}>
-            <div className="flex h-[calc(100vh-220px)] overflow-x-auto overflow-y-hidden pb-4 gap-6 px-2">
+            <div className="flex h-[calc(100vh-220px)] overflow-x-auto overflow-y-hidden pb-4 gap-6 px-2 max-w-full">
                 {columns.map((column) => (
                     <Droppable key={column.key} droppableId={column.key}>
                         {(provided, snapshot) => (

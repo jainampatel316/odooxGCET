@@ -27,8 +27,8 @@ const ProductListing = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [viewMode, setViewMode] = useState('grid');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  
-  
+
+
   // Filter states - aligned with backend
   const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
   const [selectedVendor, setSelectedVendor] = useState(searchParams.get('vendorId') || '');
@@ -40,13 +40,13 @@ const ProductListing = () => {
   const [sortBy, setSortBy] = useState(searchParams.get('sortBy') || 'createdAt');
   const [sortOrder, setSortOrder] = useState(searchParams.get('sortOrder') || 'desc');
   const [isRentable, setIsRentable] = useState(true);
-  
+
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const limit = 20;
-  
+
   // Filter options from backend
   const [filterOptions, setFilterOptions] = useState({
     tags: [],
@@ -112,10 +112,10 @@ const ProductListing = () => {
       if (sortBy && sortBy !== 'createdAt') params.set('sortBy', sortBy);
       if (sortOrder && sortOrder !== 'desc') params.set('sortOrder', sortOrder);
       if (currentPage > 1) params.set('page', currentPage.toString());
-      
+
       setSearchParams(params, { replace: true });
     }, 300);
-    
+
     return () => clearTimeout(timeoutId);
   }, [searchQuery, selectedVendor, rentalPeriodType, sortBy, sortOrder, currentPage, setSearchParams]);
 
@@ -130,32 +130,32 @@ const ProductListing = () => {
           // 1. Pagination
           page: currentPage,
           limit,
-          
+
           // 2. Search
           search: searchQuery || undefined,
-          
+
           // 3. Filter by vendor
           vendorId: selectedVendor || undefined,
-          
+
           // 4. Filter by sales price range
           minPrice: salesPriceRange[0] > (filterOptions.priceRange?.min || 0) ? salesPriceRange[0] : undefined,
           maxPrice: salesPriceRange[1] < (filterOptions.priceRange?.max || 10000) ? salesPriceRange[1] : undefined,
-          
+
           // 5. Filter by rental price
           rentalPeriodType: rentalPeriodType || undefined,
           minRentalPrice: rentalPriceRange[0] > (filterOptions.rentalPriceRange?.min || 0) ? rentalPriceRange[0] : undefined,
           maxRentalPrice: rentalPriceRange[1] < (filterOptions.rentalPriceRange?.max || 1000) ? rentalPriceRange[1] : undefined,
-          
+
           // 6. Filter by tags (comma-separated)
           tags: selectedTags.length > 0 ? selectedTags.join(',') : undefined,
-          
+
           // 7. Filter by attributes (JSON object)
           attributes: Object.keys(selectedAttributes).length > 0 ? selectedAttributes : undefined,
-          
+
           // 8. Sorting
           sortBy: sortBy || 'createdAt',
           sortOrder: sortOrder || 'desc',
-          
+
           // Additional filters
           isRentable: isRentable ? 'true' : undefined,
         };
@@ -216,12 +216,12 @@ const ProductListing = () => {
     setSearchParams({});
   };
 
-  const hasActiveFilters = searchQuery || selectedVendor || 
-    rentalPriceRange[0] > (filterOptions.rentalPriceRange.min || 0) || 
+  const hasActiveFilters = searchQuery || selectedVendor ||
+    rentalPriceRange[0] > (filterOptions.rentalPriceRange.min || 0) ||
     rentalPriceRange[1] < (filterOptions.rentalPriceRange.max || 1000) ||
     salesPriceRange[0] > (filterOptions.priceRange.min || 0) ||
     salesPriceRange[1] < (filterOptions.priceRange.max || 10000) ||
-    selectedTags.length > 0 || 
+    selectedTags.length > 0 ||
     Object.keys(selectedAttributes).length > 0 ||
     !isRentable;
 
@@ -229,12 +229,12 @@ const ProductListing = () => {
     <CustomerLayout>
       <div className="container py-8">
         {/* Header */}
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold mb-2">Browse Equipment</h1>
-            <p className="text-muted-foreground">
-              Discover {totalCount} products available for rent
-            </p>
-          </div>
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold mb-2">Browse Equipment</h1>
+          <p className="text-muted-foreground">
+            Discover {totalCount} products available for rent
+          </p>
+        </div>
 
         {/* Search and Filter Bar */}
         <div className="flex flex-col lg:flex-row gap-4 mb-6">
@@ -306,16 +306,23 @@ const ProductListing = () => {
           </div>
         </div>
 
-        <div className="flex gap-8">
+        <div className="flex flex-col lg:flex-row gap-6">
           {/* Sidebar Filters - Desktop */}
-          <aside className={`w-full lg:w-64 shrink-0 ${isFilterOpen ? 'fixed inset-0 z-50 bg-background p-6 overflow-auto' : 'hidden'} lg:block lg:relative lg:p-0 lg:bg-transparent`}>
-            <div className="lg:sticky lg:top-24">
+          <aside className={`${isFilterOpen ? 'fixed inset-0 z-50 bg-background p-6 overflow-auto' : 'hidden'} lg:block lg:w-72 lg:shrink-0`}>
+            <div className="lg:sticky lg:top-24 bg-card border rounded-xl p-6 shadow-sm max-h-[calc(100vh-7rem)] overflow-y-auto">
+              {/* Scrollable filter content */}
               {/* Mobile Filter Header */}
               <div className="flex items-center justify-between mb-6 lg:hidden">
                 <h2 className="text-lg font-semibold">Filters</h2>
                 <Button variant="ghost" size="icon" onClick={() => setIsFilterOpen(false)}>
                   <X className="h-5 w-5" />
                 </Button>
+              </div>
+
+              {/* Desktop Filter Header */}
+              <div className="hidden lg:flex items-center gap-2 mb-6 pb-4 border-b">
+                <SlidersHorizontal className="h-5 w-5 text-primary" />
+                <h2 className="text-lg font-semibold">Filters</h2>
               </div>
 
               {/* Clear Filters */}
@@ -334,9 +341,8 @@ const ProductListing = () => {
                     <button
                       key={period}
                       onClick={() => setRentalPeriodType(period)}
-                      className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-                        rentalPeriodType === period ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
-                      }`}
+                      className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${rentalPeriodType === period ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                        }`}
                     >
                       {period === 'HOURLY' ? 'Per Hour' : period === 'DAILY' ? 'Per Day' : period === 'WEEKLY' ? 'Per Week' : period === 'MONTHLY' ? 'Per Month' : period}
                     </button>
@@ -415,9 +421,8 @@ const ProductListing = () => {
                   <div className="space-y-2">
                     <button
                       onClick={() => setSelectedVendor('')}
-                      className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-                        !selectedVendor ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
-                      }`}
+                      className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${!selectedVendor ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                        }`}
                     >
                       All Vendors
                     </button>
@@ -425,9 +430,8 @@ const ProductListing = () => {
                       <button
                         key={vendor.id}
                         onClick={() => setSelectedVendor(vendor.id)}
-                        className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-                          selectedVendor === vendor.id ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
-                        }`}
+                        className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${selectedVendor === vendor.id ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                          }`}
                       >
                         {vendor.name}
                       </button>
@@ -451,11 +455,10 @@ const ProductListing = () => {
                             setSelectedTags([...selectedTags, tag]);
                           }
                         }}
-                        className={`px-3 py-1 rounded-full text-sm transition-colors ${
-                          selectedTags.includes(tag)
-                            ? 'bg-primary text-primary-foreground'
-                            : 'bg-muted hover:bg-muted/80'
-                        }`}
+                        className={`px-3 py-1 rounded-full text-sm transition-colors ${selectedTags.includes(tag)
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-muted hover:bg-muted/80'
+                          }`}
                       >
                         {tag}
                       </button>
@@ -487,11 +490,10 @@ const ProductListing = () => {
                                   }
                                   setSelectedAttributes(newAttributes);
                                 }}
-                                className={`px-3 py-1 rounded-full text-sm transition-colors ${
-                                  isSelected
-                                    ? 'bg-primary text-primary-foreground'
-                                    : 'bg-muted hover:bg-muted/80'
-                                }`}
+                                className={`px-3 py-1 rounded-full text-sm transition-colors ${isSelected
+                                  ? 'bg-primary text-primary-foreground'
+                                  : 'bg-muted hover:bg-muted/80'
+                                  }`}
                               >
                                 {value.value}
                               </button>

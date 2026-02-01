@@ -49,6 +49,7 @@ model User {
   payments        Payment[]
   products        Product[]   // Products managed by vendor
   activityLogs    ActivityLog[]
+  inventoryLogs   InventoryLog[]
   
   @@index([email])
   @@index([role])
@@ -169,6 +170,7 @@ model ProductVariant {
   quotationLines  QuotationLine[]
   orderLines      OrderLine[]
   reservations    Reservation[]
+  inventoryLogs   InventoryLog[]
   
   @@index([productId])
   @@index([sku])
@@ -403,6 +405,7 @@ model RentalOrder {
   returnRecords   ReturnRecord[]
   invoices        Invoice[]
   payments        Payment[]
+  inventoryLogs   InventoryLog[]
   
   @@index([customerId])
   @@index([status])
@@ -484,6 +487,7 @@ model Reservation {
   order           RentalOrder       @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product         Product           @relation(fields: [productId], references: [id])
   variant         ProductVariant?   @relation(fields: [variantId], references: [id])
+  inventoryLogs   InventoryLog[]
   
   @@index([orderId])
   @@index([productId])
@@ -493,38 +497,58 @@ model Reservation {
   @@index([status])
 }
 
+
 enum StockMovementType {
-  RESERVED
-  WITH_CUSTOMER
-  RETURNED
-  DAMAGED
-  LOST
-  ADJUSTMENT
+  INITIAL_STOCK      // When product is first created
+  STOCK_IN           // Stock added (purchase, vendor restock)
+  STOCK_OUT          // Stock removed (sale, damage, loss)
+  RESERVED           // Stock reserved for order/quotation
+  WITH_CUSTOMER      // Stock picked up by customer
+  RETURNED           // Stock returned by customer
+  DAMAGED            // Stock marked as damaged
+  LOST               // Stock marked as lost
+  ADJUSTMENT         // Manual inventory adjustment
+  RESERVATION_RELEASE // Reservation cancelled/expired
 }
 
 model InventoryLog {
   id              String            @id @default(uuid())
-  productId       String
+  productId       String?
+  variantId       String?
   
   movementType    StockMovementType
-  quantity        Int
-  referenceType   String?           // e.g., "order", "return", "adjustment"
-  referenceId     String?
-  
+  quantity        Int               // Positive for IN, negative for OUT
   previousQty     Int
   newQty          Int
   
+  // Reference to related entities
+  orderId         String?
+  reservationId   String?
+  userId          String?           // User who performed the action
+  
+  // Legacy fields for backward compatibility
+  referenceType   String?           // e.g., "order", "return", "adjustment"
+  referenceId     String?
+  
   notes           String?           @db.Text
+  reason          String?           @db.Text
   
   createdAt       DateTime          @default(now())
-  createdBy       String?
+  createdBy       String?           // Legacy field
   
   // Relations
-  product         Product           @relation(fields: [productId], references: [id])
+  product         Product?          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant         ProductVariant?   @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  order           RentalOrder?      @relation(fields: [orderId], references: [id])
+  reservation     Reservation?      @relation(fields: [reservationId], references: [id])
+  user            User?             @relation(fields: [userId], references: [id])
   
   @@index([productId])
+  @@index([variantId])
   @@index([movementType])
   @@index([createdAt])
+  @@index([orderId])
+  @@index([reservationId])
 }
 
 // ============================================

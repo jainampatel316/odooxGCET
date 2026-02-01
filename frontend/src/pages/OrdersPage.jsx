@@ -247,7 +247,7 @@ const OrdersPage = () => {
             </div>
 
             {/* Main Content */}
-            <main className="p-6">
+            <main className="p-6 overflow-hidden">
                 {isLoading ? (
                     <div className="flex items-center justify-center h-64">
                         <div className="text-center">

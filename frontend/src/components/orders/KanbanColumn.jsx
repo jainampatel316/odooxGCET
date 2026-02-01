@@ -30,12 +30,6 @@ const KanbanColumn = ({ title, orders, count, onClick, status, isDraggingOver })
                     <h3 className="font-semibold text-sm tracking-wide">{title}</h3>
                 </div>
                 <div className="flex items-center gap-1">
-                    <button className="p-1 hover:bg-white/20 rounded transition-colors">
-                        <Plus className="w-4 h-4 text-white" />
-                    </button>
-                    <button className="p-1 hover:bg-white/20 rounded transition-colors">
-                        <MoreHorizontal className="w-4 h-4 text-white" />
-                    </button>
                 </div>
             </div>
 
@@ -49,7 +43,7 @@ const KanbanColumn = ({ title, orders, count, onClick, status, isDraggingOver })
                     <div className="flex items-center gap-2 text-gray-500 text-xs font-medium">
                         <span className="flex items-center gap-1"><span className="w-4 h-4 flex items-center justify-center border border-gray-300 rounded text-[10px]">{count}</span> Items</span>
                     </div>
-                    <button className="text-gray-400 hover:bg-gray-50 p-1 rounded-full"><Plus className="w-4 h-4" /></button>
+
                 </div>
 
                 {/* Cards Stack */}

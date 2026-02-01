@@ -285,24 +285,102 @@ export const confirmOrder = async (req, res) => {
 export const cancelOrder = async (req, res) => {
   try {
     const { orderId } = req.params;
-    const order = await prisma.rentalOrder.findFirst({
-      where: { id: orderId },
-      include: { lines: { where: { product: { vendorId: req.user.id } } } },
+    
+    // Use transaction to ensure atomicity
+    await prisma.$transaction(async (tx) => {
+      // Get order with all related data
+      const order = await tx.rentalOrder.findFirst({
+        where: { id: orderId },
+        include: {
+          lines: {
+            where: { product: { vendorId: req.user.id } },
+            include: { product: true },
+          },
+          payments: { where: { status: 'COMPLETED' } },
+          invoices: true,
+          reservations: { where: { status: { in: ['PENDING', 'ACTIVE'] } } },
+        },
+      });
+
+      if (!order || order.lines.length === 0) {
+        throw new Error("Order not found or unauthorized");
+      }
+
+      if (order.status !== "DRAFT" && order.status !== "CONFIRMED") {
+        throw new Error("Only draft or confirmed orders can be cancelled");
+      }
+
+      // 1. Update order status to CANCELLED
+      await tx.rentalOrder.update({
+        where: { id: orderId },
+        data: { status: "CANCELLED" },
+      });
+
+      // 2. Release all reservations for this order
+      const { releaseReservation } = require('../services/inventory.service.js');
+      
+      for (const reservation of order.reservations) {
+        try {
+          await releaseReservation(reservation.id, req.user.id, 'Order cancelled');
+        } catch (error) {
+          console.error(`Failed to release reservation ${reservation.id}:`, error);
+        }
+      }
+
+      // 3. Create refund payments for completed payments
+      for (const payment of order.payments) {
+        await tx.payment.create({
+          data: {
+            paymentNumber: `REF-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            orderId: order.id,
+            invoiceId: payment.invoiceId,
+            customerId: order.customerId,
+            amount: payment.amount, // Refund full amount
+            method: payment.method,
+            status: 'REFUNDED',
+            paymentDate: new Date(),
+            notes: `Refund for cancelled order ${order.orderNumber}. Original payment: ${payment.paymentNumber}`,
+            referenceNumber: payment.paymentNumber, // Reference to original payment
+          },
+        });
+      }
+
+      // 4. Update invoice status to CANCELLED
+      for (const invoice of order.invoices) {
+        await tx.invoice.update({
+          where: { id: invoice.id },
+          data: {
+            status: 'CANCELLED',
+            balanceAmount: 0, // Clear balance
+          },
+        });
+      }
+
+      // 5. Log activity
+      await tx.activityLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'ORDER_CANCELLED',
+          entityType: 'RentalOrder',
+          entityId: order.id,
+          description: `Order ${order.orderNumber} cancelled. Refund amount: ₹${order.totalAmount}`,
+          metadata: {
+            orderNumber: order.orderNumber,
+            refundAmount: order.totalAmount.toString(),
+            paymentsRefunded: order.payments.length,
+            reservationsReleased: order.reservations.length,
+          },
+        },
+      });
     });
-    if (!order || order.lines.length === 0) {
-      return res.status(404).json({ message: "Order not found or unauthorized" });
-    }
-    if (order.status !== "DRAFT" && order.status !== "CONFIRMED") {
-      return res.status(400).json({ message: "Only draft or confirmed orders can be cancelled" });
-    }
-    await prisma.rentalOrder.update({
-      where: { id: orderId },
-      data: { status: "CANCELLED" },
+
+    res.json({
+      message: "Order cancelled successfully",
+      details: "Reservations released and refunds processed"
     });
-    res.json({ message: "Order cancelled" });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Error cancelling order" });
+    console.error('Cancel order error:', error);
+    res.status(500).json({ message: error.message || "Error cancelling order" });
   }
 };
 

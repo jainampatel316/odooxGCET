@@ -10,11 +10,16 @@ const Header = () => {
   const { cartItemsCount, user, logout } = useApp();
   const location = useLocation();
 
-  const navLinks = [
-    { path: '/', label: 'Home' },
-    { path: '/products', label: 'Browse Products' },
-    { path: '/how-it-works', label: 'How It Works' },
-  ];
+  // Dynamic navigation links based on login status
+  const navLinks = user
+    ? [
+      { path: '/dashboard', label: 'Dashboard' },
+      { path: '/products', label: 'Browse Products' },
+    ]
+    : [
+      { path: '/', label: 'Home' },
+      { path: '/products', label: 'Browse Products' },
+    ];
 
   const isActive = (path) => location.pathname === path;
 
@@ -22,7 +27,7 @@ const Header = () => {
     <header className="sticky top-0 z-50 w-full border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/60">
       <div className="container flex h-16 items-center justify-between">
         {/* Logo */}
-        <Link to="/" className="flex items-center gap-2">
+        <Link to={user ? '/dashboard' : '/'} className="flex items-center gap-2">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-lg">
             R
           </div>
@@ -35,9 +40,8 @@ const Header = () => {
             <Link
               key={link.path}
               to={link.path}
-              className={`text-sm font-medium transition-colors hover:text-primary ${
-                isActive(link.path) ? 'text-primary' : 'text-muted-foreground'
-              }`}
+              className={`text-sm font-medium transition-colors hover:text-primary ${isActive(link.path) ? 'text-primary' : 'text-muted-foreground'
+                }`}
             >
               {link.label}
             </Link>
@@ -130,11 +134,10 @@ const Header = () => {
                 key={link.path}
                 to={link.path}
                 onClick={() => setIsMenuOpen(false)}
-                className={`block px-4 py-2 rounded-lg transition-colors ${
-                  isActive(link.path)
-                    ? 'bg-primary/10 text-primary font-medium'
-                    : 'text-foreground hover:bg-muted'
-                }`}
+                className={`block px-4 py-2 rounded-lg transition-colors ${isActive(link.path)
+                  ? 'bg-primary/10 text-primary font-medium'
+                  : 'text-foreground hover:bg-muted'
+                  }`}
               >
                 {link.label}
               </Link>

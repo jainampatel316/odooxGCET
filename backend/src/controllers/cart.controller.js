@@ -39,83 +39,109 @@ export const addToCart = async (req, res) => {
     const periodType = (rentalPeriodType || 'DAILY').toUpperCase();
     const isHourly = periodType === 'HOURLY';
 
-    const cart = await prisma.quotation.findFirst({
-      where: { customerId: req.user.id, status: 'DRAFT' },
-    });
+    // Use serializable transaction to prevent race conditions
+    const updatedCart = await prisma.$transaction(
+      async (tx) => {
+        // Get or find cart
+        const cart = await tx.quotation.findFirst({
+          where: { customerId: req.user.id, status: 'DRAFT' },
+        });
 
-    if (!cart) return res.status(400).json({ message: 'No active cart found' });
+        if (!cart) {
+          throw new Error('No active cart found');
+        }
 
-    const product = await prisma.product.findUnique({
-      where: { id: productId },
-      include: { rentalPricing: true },
-    });
+        // Get product with lock (within transaction)
+        const product = await tx.product.findUnique({
+          where: { id: productId },
+          include: { rentalPricing: true },
+        });
 
-    if (!product) return res.status(404).json({ message: 'Product not found' });
+        if (!product) {
+          throw new Error('Product not found');
+        }
 
-    const requestedQty = Math.max(1, Number(quantity) || 1);
-    const available = Number(product.quantityOnHand) || 0;
-    const existingLines = await prisma.quotationLine.findMany({
-      where: { quotationId: cart.id, productId },
-      select: { quantity: true },
-    });
-    const totalInCart = existingLines.reduce((sum, l) => sum + (l.quantity || 0), 0);
-    const remaining = Math.max(0, available - totalInCart);
-    if (remaining <= 0) {
-      return res.status(400).json({ message: 'Product is out of stock or maximum quantity already in cart' });
-    }
-    if (requestedQty > remaining) {
-      return res.status(400).json({
-        message: `Only ${remaining} available. You already have ${totalInCart} in cart.`,
-      });
-    }
+        const requestedQty = Math.max(1, Number(quantity) || 1);
+        
+        // Import getAvailableInventory at the top of the file
+        const { getAvailableInventory } = await import('../services/inventory.service.js');
+        
+        // Check availability using inventory service (considers reservations)
+        const start = new Date(rentalStartDate);
+        const end = new Date(rentalEndDate);
+        const available = await getAvailableInventory(productId, variantId, start, end, tx);
+        
+        // Check existing cart items
+        const existingLines = await tx.quotationLine.findMany({
+          where: { quotationId: cart.id, productId },
+          select: { quantity: true },
+        });
+        const totalInCart = existingLines.reduce((sum, l) => sum + (l.quantity || 0), 0);
+        const remaining = Math.max(0, available - totalInCart);
+        
+        if (remaining <= 0) {
+          throw new Error('Product is out of stock or maximum quantity already in cart');
+        }
+        if (requestedQty > remaining) {
+          throw new Error(`Only ${remaining} available. You already have ${totalInCart} in cart.`);
+        }
 
-    const start = new Date(rentalStartDate);
-    const end = new Date(rentalEndDate);
-    const duration = isHourly
-      ? Math.max(1, Math.ceil((end - start) / (1000 * 60 * 60)))
-      : Math.max(1, Math.ceil((end - start) / (1000 * 60 * 60 * 24)));
+        const duration = isHourly
+          ? Math.max(1, Math.ceil((end - start) / (1000 * 60 * 60)))
+          : Math.max(1, Math.ceil((end - start) / (1000 * 60 * 60 * 24)));
 
-    // Use rental pricing for the selected period type (HOURLY or DAILY); fallback to sales price × duration
-    let unitPrice = calculateRentalPrice(duration, product.rentalPricing || [], periodType);
-    if (unitPrice <= 0) {
-      const salesPrice = Number(product.salesPrice) || 0;
-      unitPrice = isHourly ? salesPrice * duration : salesPrice * duration;
-    }
-    const lineTotal = unitPrice * requestedQty;
+        // Use rental pricing for the selected period type (HOURLY or DAILY); fallback to sales price × duration
+        let unitPrice = calculateRentalPrice(duration, product.rentalPricing || [], periodType);
+        if (unitPrice <= 0) {
+          const salesPrice = Number(product.salesPrice) || 0;
+          unitPrice = isHourly ? salesPrice * duration : salesPrice * duration;
+        }
+        const lineTotal = unitPrice * requestedQty;
 
-    const line = await prisma.quotationLine.create({
-      data: {
-        quotationId: cart.id,
-        productId,
-        variantId: variantId || null,
-        quantity: requestedQty,
-        rentalStartDate: start,
-        rentalEndDate: end,
-        rentalPeriodType: periodType,
-        rentalDuration: duration,
-        unitPrice,
-        lineTotal,
-        taxRate: 0,
-        taxAmount: 0,
+        // Create cart line
+        await tx.quotationLine.create({
+          data: {
+            quotationId: cart.id,
+            productId,
+            variantId: variantId || null,
+            quantity: requestedQty,
+            rentalStartDate: start,
+            rentalEndDate: end,
+            rentalPeriodType: periodType,
+            rentalDuration: duration,
+            unitPrice,
+            lineTotal,
+            taxRate: 0,
+            taxAmount: 0,
+          },
+        });
+
+        // Update cart totals
+        await tx.quotation.update({
+          where: { id: cart.id },
+          data: {
+            subtotal: { increment: lineTotal },
+            taxAmount: { increment: 0 },
+            totalAmount: { increment: lineTotal },
+          },
+        });
+
+        // Return full cart
+        return await tx.quotation.findFirst({
+          where: { id: cart.id },
+          include: { lines: { include: { product: true, variant: true } } },
+        });
       },
-    });
+      {
+        isolationLevel: 'Serializable',
+        maxWait: 5000,
+        timeout: 10000,
+      }
+    );
 
-    await prisma.quotation.update({
-      where: { id: cart.id },
-      data: {
-        subtotal: { increment: lineTotal },
-        taxAmount: { increment: 0 },
-        totalAmount: { increment: lineTotal },
-      },
-    });
-
-    // Return full cart so frontend can update state
-    const updatedCart = await prisma.quotation.findFirst({
-      where: { id: cart.id },
-      include: { lines: { include: { product: true, variant: true } } },
-    });
     res.status(201).json(updatedCart);
   } catch (error) {
+    console.error('Add to cart error:', error);
     res.status(500).json({ error: error.message });
   }
 };

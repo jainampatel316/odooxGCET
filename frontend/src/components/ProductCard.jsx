@@ -25,13 +25,12 @@ const ProductCard = ({ product }) => {
       navigate('/login', { state: { from: `/products/${product.id}` } });
       return;
     }
-    if (remaining <= 0) return;
-    // Ask rental period and dates on the product page, not in cart
+    // Navigate to product page to select rental period and dates
     navigate(`/products/${product.id}`, { state: { addToCart: true } });
   };
 
   return (
-    <Link 
+    <Link
       to={`/products/${product.id}`}
       className="group card-interactive p-0 overflow-hidden flex flex-col"
     >
@@ -42,13 +41,6 @@ const ProductCard = ({ product }) => {
           alt={product.name}
           className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
         />
-        {remaining === 0 && (
-          <div className="absolute inset-0 bg-background/80 flex items-center justify-center">
-            <span className="badge-overdue px-3 py-1 rounded-full text-sm font-medium">
-              Out of Stock
-            </span>
-          </div>
-        )}
         {remaining > 0 && remaining <= 2 && (
           <div className="absolute top-2 left-2">
             <span className="badge-pending px-2 py-1 rounded text-xs font-medium">
@@ -96,11 +88,10 @@ const ProductCard = ({ product }) => {
             </div>
           )}
 
-          {/* Add to Cart Button - disabled when no remaining quantity (stock minus already in cart) */}
-          <Button 
+          {/* Add to Cart Button - always enabled */}
+          <Button
             onClick={handleAddToCart}
             className="w-full gap-2"
-            disabled={remaining <= 0}
           >
             <ShoppingCart className="h-4 w-4" />
             Add to Cart

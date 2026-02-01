@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Package, FileText, Download, Clock, ArrowRight, User, Settings, LogOut, ChevronRight, Receipt } from 'lucide-react';
+import { Package, FileText, Download, Clock, ArrowRight, ChevronRight, Receipt } from 'lucide-react';
 import CustomerLayout from '../components/CustomerLayout';
 import { Button } from '../components/ui/button';
 import { useApp } from '../context/AppContext';
-import { getQuotations } from '../utils/storage';
 import { orderAPI } from '../utils/api';
 import { transformBackendOrders } from '../utils/orderTransform';
 import { formatCurrency, formatDate, getStatusBadgeClass, getStatusDisplayText } from '../utils/helpers';
@@ -12,24 +11,13 @@ import { toast } from '@/hooks/use-toast';
 
 const CustomerDashboard = () => {
   const navigate = useNavigate();
-  const { user, logout } = useApp();
+  const { user } = useApp();
   const [activeTab, setActiveTab] = useState('orders');
   const [orders, setOrders] = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(true);
   const [invoices, setInvoices] = useState([]);
   const [invoicesLoading, setInvoicesLoading] = useState(true);
-  const [quotations, setQuotations] = useState([]);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
-
-  useEffect(() => {
-    if (!user) {
-      navigate('/login');
-      return;
-    }
-
-    const allQuotations = getQuotations().filter(q => q.customerId === user.id);
-    setQuotations(allQuotations);
-  }, [user, navigate]);
 
   useEffect(() => {
     if (!user) return;
@@ -78,11 +66,6 @@ const CustomerDashboard = () => {
 
     fetchInvoices();
   }, [user]);
-
-  const handleLogout = () => {
-    logout();
-    navigate('/');
-  };
 
   const handleDownloadInvoice = (invoice) => {
     const items = invoice.items || invoice.lines || invoice.order?.lines || [];
@@ -142,9 +125,7 @@ Amount Paid: ${formatCurrency(Number(invoice.paidAmount ?? 0))}
   const tabs = [
     { id: 'orders', label: 'My Orders', count: orders.length },
     { id: 'completed', label: 'Completed Orders', count: completedOrders.length },
-    { id: 'quotations', label: 'Quotations', count: quotations.length },
     { id: 'invoices', label: 'Invoices', count: invoices.length },
-    { id: 'profile', label: 'Profile', count: null },
   ];
 
   const getInvoiceForOrder = (orderId) => invoices.find((inv) => inv.orderId === orderId);
@@ -340,38 +321,6 @@ Amount Paid: ${formatCurrency(Number(invoice.paidAmount ?? 0))}
             </div>
           )}
 
-          {/* Quotations Tab */}
-          {activeTab === 'quotations' && (
-            <div className="space-y-4">
-              {quotations.length === 0 ? (
-                <div className="text-center py-16 bg-muted/30 rounded-xl">
-                  <FileText className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
-                  <h3 className="text-lg font-medium mb-2">No quotations</h3>
-                  <p className="text-muted-foreground">Your quotations will appear here</p>
-                </div>
-              ) : (
-                quotations.map((quote) => (
-                  <div key={quote.id} className="bg-card rounded-xl border p-6">
-                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                      <div>
-                        <div className="flex items-center gap-3 mb-2">
-                          <span className="font-mono text-sm text-muted-foreground">#{quote.quotationNumber}</span>
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusBadgeClass(quote.status)}`}>
-                            {getStatusDisplayText(quote.status)}
-                          </span>
-                        </div>
-                        <div className="text-sm text-muted-foreground">
-                          Created on {formatDate(quote.createdAt)}
-                        </div>
-                      </div>
-                      <div className="font-bold text-lg">{formatCurrency(quote.total)}</div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-
           {/* Invoices Tab */}
           {activeTab === 'invoices' && (
             <div className="space-y-4">
@@ -435,53 +384,6 @@ Amount Paid: ${formatCurrency(Number(invoice.paidAmount ?? 0))}
                   );
                 })
               )}
-            </div>
-          )}
-
-          {/* Profile Tab */}
-          {activeTab === 'profile' && (
-            <div className="max-w-2xl">
-              <div className="bg-card rounded-xl border p-6 mb-6">
-                <div className="flex items-center gap-4 mb-6">
-                  <div className="w-16 h-16 rounded-full bg-primary/10 text-primary flex items-center justify-center text-2xl font-bold">
-                    {user.name?.charAt(0).toUpperCase()}
-                  </div>
-                  <div>
-                    <div className="text-xl font-bold">{user.name}</div>
-                    <div className="text-muted-foreground">{user.email}</div>
-                  </div>
-                </div>
-                
-                <div className="grid gap-4">
-                  <div className="flex justify-between py-3 border-b">
-                    <span className="text-muted-foreground">Phone</span>
-                    <span>{user.phone || 'Not provided'}</span>
-                  </div>
-                  <div className="flex justify-between py-3 border-b">
-                    <span className="text-muted-foreground">Company</span>
-                    <span>{user.companyName || 'Not provided'}</span>
-                  </div>
-                  <div className="flex justify-between py-3 border-b">
-                    <span className="text-muted-foreground">GSTIN</span>
-                    <span className="font-mono">{user.gstin || 'Not provided'}</span>
-                  </div>
-                  <div className="flex justify-between py-3">
-                    <span className="text-muted-foreground">Member Since</span>
-                    <span>{formatDate(user.createdAt || new Date().toISOString())}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Button variant="outline" className="w-full justify-start gap-2">
-                  <Settings className="h-4 w-4" />
-                  Account Settings
-                </Button>
-                <Button variant="outline" className="w-full justify-start gap-2 text-destructive hover:text-destructive" onClick={handleLogout}>
-                  <LogOut className="h-4 w-4" />
-                  Log Out
-                </Button>
-              </div>
             </div>
           )}
         </div>

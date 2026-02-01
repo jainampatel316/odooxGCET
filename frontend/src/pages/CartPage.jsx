@@ -398,6 +398,19 @@ const CartPage = () => {
                       <Link to={`/products/${line.productId}`}>
                         <h3 className="font-semibold hover:text-primary transition-colors">{productName}</h3>
                       </Link>
+
+                      {/* Rental Dates */}
+                      {(line.rentalStartDate || line.rentalEndDate) && (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground mt-2">
+                          <Calendar className="h-4 w-4" />
+                          <span>
+                            {line.rentalStartDate && format(new Date(line.rentalStartDate), 'MMM dd, yyyy')}
+                            {line.rentalStartDate && line.rentalEndDate && ' - '}
+                            {line.rentalEndDate && format(new Date(line.rentalEndDate), 'MMM dd, yyyy')}
+                          </span>
+                        </div>
+                      )}
+
                       <p className="text-sm text-muted-foreground mt-1">
                         {formatCurrency(unitPrice)} per unit
                         {line.rentalPeriodType && line.rentalDuration != null && (

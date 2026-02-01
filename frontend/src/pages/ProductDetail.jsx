@@ -28,13 +28,31 @@ const ProductDetail = () => {
   const location = useLocation();
   const { user, addToCart, updateCartDates, cart } = useApp();
   const fromAddToCart = location.state?.addToCart === true;
-  
+
+  // Find if this product is already in cart
+  const cartItem = cart?.lines?.find(line => line.productId === id);
+
   const [product, setProduct] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [quantity, setQuantity] = useState(1);
   const [rentalPeriodType, setRentalPeriodType] = useState('DAILY'); // HOURLY | DAILY
-  const [startDate, setStartDate] = useState(cart.rentalStart ? new Date(cart.rentalStart) : null);
-  const [endDate, setEndDate] = useState(cart.rentalEnd ? new Date(cart.rentalEnd) : null);
+
+  // Use cart item dates if available, otherwise use cart global dates, otherwise null
+  const [startDate, setStartDate] = useState(
+    cartItem?.rentalStartDate
+      ? new Date(cartItem.rentalStartDate)
+      : cart?.rentalStart
+        ? new Date(cart.rentalStart)
+        : null
+  );
+  const [endDate, setEndDate] = useState(
+    cartItem?.rentalEndDate
+      ? new Date(cartItem.rentalEndDate)
+      : cart?.rentalEnd
+        ? new Date(cart.rentalEnd)
+        : null
+  );
+
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('17:00');
   const [disabledDates, setDisabledDates] = useState([]);
@@ -81,6 +99,23 @@ const ProductDetail = () => {
       fetchProduct();
     }
   }, [id]);
+
+  // Update dates when cart changes or product ID changes
+  useEffect(() => {
+    const currentCartItem = cart?.lines?.find(line => line.productId === id);
+
+    if (currentCartItem?.rentalStartDate) {
+      setStartDate(new Date(currentCartItem.rentalStartDate));
+    } else if (cart?.rentalStart) {
+      setStartDate(new Date(cart.rentalStart));
+    }
+
+    if (currentCartItem?.rentalEndDate) {
+      setEndDate(new Date(currentCartItem.rentalEndDate));
+    } else if (cart?.rentalEnd) {
+      setEndDate(new Date(cart.rentalEnd));
+    }
+  }, [cart, id]);
 
   // Build start/end datetimes for API (hourly: date+time, daily: date at midnight)
   const getStartEndForApi = () => {
@@ -239,11 +274,18 @@ const ProductDetail = () => {
   return (
     <CustomerLayout>
       <div className="container py-8">
-        {/* Breadcrumb */}
-        <Link to="/products" className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground mb-8">
-          <ArrowLeft className="h-4 w-4" />
-          Back to Products
-        </Link>
+        {/* Breadcrumb - Back to Cart if from cart, otherwise Back to Products */}
+        {cartItem ? (
+          <Link to="/cart" className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground mb-8">
+            <ArrowLeft className="h-4 w-4" />
+            Back to Cart
+          </Link>
+        ) : (
+          <Link to="/products" className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground mb-8">
+            <ArrowLeft className="h-4 w-4" />
+            Back to Products
+          </Link>
+        )}
 
         <div className="grid lg:grid-cols-2 gap-8 lg:gap-12">
           {/* Image Gallery */}
@@ -338,9 +380,8 @@ const ProductDetail = () => {
                       <button
                         type="button"
                         onClick={() => setRentalPeriodType('HOURLY')}
-                        className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
-                          isHourly ? 'border-primary bg-primary/10 text-primary' : 'border-muted hover:border-primary/50'
-                        }`}
+                        className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all ${isHourly ? 'border-primary bg-primary/10 text-primary' : 'border-muted hover:border-primary/50'
+                          }`}
                       >
                         Hour (e.g. 3pm 4th Feb → 7pm 7th Feb)
                       </button>
@@ -349,9 +390,8 @@ const ProductDetail = () => {
                       <button
                         type="button"
                         onClick={() => setRentalPeriodType('DAILY')}
-                        className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
-                          !isHourly ? 'border-primary bg-primary/10 text-primary' : 'border-muted hover:border-primary/50'
-                        }`}
+                        className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all ${!isHourly ? 'border-primary bg-primary/10 text-primary' : 'border-muted hover:border-primary/50'
+                          }`}
                       >
                         Day (e.g. 4th Feb → 5th Feb)
                       </button>
@@ -553,7 +593,7 @@ const ProductDetail = () => {
           </div>
         </div>
       </div>
-    </CustomerLayout>
+    </CustomerLayout >
   );
 };
 

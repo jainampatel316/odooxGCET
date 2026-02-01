@@ -309,7 +309,7 @@ const VendorDashboard = () => {
       </aside>
 
       {/* Main Content */}
-      <div className="flex-1 lg:ml-0">
+      <div className="flex-1 min-w-0">
         <header className="sticky top-0 z-40 flex items-center justify-between h-16 px-4 border-b bg-card">
           <button className="lg:hidden" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu className="h-6 w-6" /></button>
           <h1 className="text-xl font-semibold capitalize">{activeTab}</h1>
@@ -318,7 +318,7 @@ const VendorDashboard = () => {
           </div>
         </header>
 
-        <main className="p-4 lg:p-6">
+        <main className="p-4 lg:p-6 overflow-hidden">
           {activeTab === 'dashboard' && (
             <div className="space-y-6">
               {/* KPI Cards */}
@@ -588,7 +588,7 @@ const VendorDashboard = () => {
                       </div>
                     </div>
                   ))}
-                    {orders.filter(o => o.status === 'active' || o.status === 'picked_up').length === 0 && (
+                  {orders.filter(o => o.status === 'active' || o.status === 'picked_up').length === 0 && (
                     <div className="text-center py-12 text-muted-foreground bg-card rounded-xl border">No pending returns</div>
                   )}
                 </div>
