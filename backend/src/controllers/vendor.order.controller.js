@@ -1,5 +1,6 @@
 import prisma from "../lib/prisma.js";
 import { sendOrderStatusEmail } from "../services/email.service.js";
+import { releaseReservation } from "../services/inventory.service.js";
 
 
 // Get orders containing this vendor's products
@@ -121,15 +122,18 @@ export const processPickup = async (req, res) => {
       const updatedOrder = await prisma.rentalOrder.update({
         where: { id: orderId },
         data: { status: "ACTIVE" },
-        include: { customer: { select: { name: true, email: true } } }
+        include: { 
+          customer: { select: { name: true, email: true } },
+          lines: { include: { product: true, variant: true } },
+          shippingAddress: true,
+          billingAddress: true
+        }
       });
 
-      sendOrderStatusEmail(updatedOrder.customer.email, updatedOrder.customer.name, {
-        orderNumber: updatedOrder.orderNumber,
-        status: updatedOrder.status,
-        totalAmount: updatedOrder.totalAmount,
-      });
+      await sendOrderStatusEmail(updatedOrder.customer.email, updatedOrder.customer.name, updatedOrder);
     }
+
+
 
 
 
@@ -227,15 +231,18 @@ export const processReturn = async (req, res) => {
       const updatedOrder = await prisma.rentalOrder.update({
         where: { id: orderId },
         data: { status: "RETURNED" },
-        include: { customer: { select: { name: true, email: true } } }
+        include: { 
+          customer: { select: { name: true, email: true } },
+          lines: { include: { product: true, variant: true } },
+          shippingAddress: true,
+          billingAddress: true
+        }
       });
 
-      sendOrderStatusEmail(updatedOrder.customer.email, updatedOrder.customer.name, {
-        orderNumber: updatedOrder.orderNumber,
-        status: updatedOrder.status,
-        totalAmount: updatedOrder.totalAmount,
-      });
+      await sendOrderStatusEmail(updatedOrder.customer.email, updatedOrder.customer.name, updatedOrder);
     }
+
+
 
 
     // 6. Create invoice for the order (after return) if none exists
@@ -292,14 +299,22 @@ export const confirmOrder = async (req, res) => {
     const updatedOrder = await prisma.rentalOrder.update({
       where: { id: orderId },
       data: { status: "CONFIRMED", confirmedAt: new Date() },
-      include: { customer: { select: { name: true, email: true } } }
+      include: { 
+        customer: { select: { name: true, email: true } },
+        lines: { include: { product: true, variant: true } },
+        shippingAddress: true,
+        billingAddress: true
+      }
     });
 
-    sendOrderStatusEmail(updatedOrder.customer.email, updatedOrder.customer.name, {
-      orderNumber: updatedOrder.orderNumber,
-      status: updatedOrder.status,
-      totalAmount: updatedOrder.totalAmount,
-    });
+    console.log(`[ConfirmOrder] Order ${orderId} status updated to CONFIRMED. Customer:`, updatedOrder.customer);
+
+    if (updatedOrder.customer && updatedOrder.customer.email) {
+      await sendOrderStatusEmail(updatedOrder.customer.email, updatedOrder.customer.name, updatedOrder);
+    } else {
+      console.warn(`[ConfirmOrder] No customer email found for order ${orderId}, skipping email.`);
+    }
+
 
     res.json({ message: "Order confirmed" });
   } catch (error) {
@@ -341,19 +356,20 @@ export const cancelOrder = async (req, res) => {
       const updatedOrder = await tx.rentalOrder.update({
         where: { id: orderId },
         data: { status: "CANCELLED" },
-        include: { customer: { select: { name: true, email: true } } }
+        include: { 
+          customer: { select: { name: true, email: true } },
+          lines: { include: { product: true, variant: true } },
+          shippingAddress: true,
+          billingAddress: true
+        }
       });
 
-      sendOrderStatusEmail(updatedOrder.customer.email, updatedOrder.customer.name, {
-        orderNumber: updatedOrder.orderNumber,
-        status: updatedOrder.status,
-        totalAmount: updatedOrder.totalAmount,
-      });
+      await sendOrderStatusEmail(updatedOrder.customer.email, updatedOrder.customer.name, updatedOrder);
+
+
 
 
       // 2. Release all reservations for this order
-      const { releaseReservation } = require('../services/inventory.service.js');
-      
       for (const reservation of order.reservations) {
         try {
           await releaseReservation(reservation.id, req.user.id, 'Order cancelled');
@@ -361,6 +377,7 @@ export const cancelOrder = async (req, res) => {
           console.error(`Failed to release reservation ${reservation.id}:`, error);
         }
       }
+
 
       // 3. Create refund payments for completed payments
       for (const payment of order.payments) {
@@ -436,14 +453,17 @@ export const completeOrder = async (req, res) => {
     const updatedOrder = await prisma.rentalOrder.update({
       where: { id: orderId },
       data: { status: "COMPLETED" },
-      include: { customer: { select: { name: true, email: true } } }
+      include: { 
+        customer: { select: { name: true, email: true } },
+        lines: { include: { product: true, variant: true } },
+        shippingAddress: true,
+        billingAddress: true
+      }
     });
 
-    sendOrderStatusEmail(updatedOrder.customer.email, updatedOrder.customer.name, {
-      orderNumber: updatedOrder.orderNumber,
-      status: updatedOrder.status,
-      totalAmount: updatedOrder.totalAmount,
-    });
+    await sendOrderStatusEmail(updatedOrder.customer.email, updatedOrder.customer.name, updatedOrder);
+
+
 
     res.json({ message: "Order completed" });
   } catch (error) {

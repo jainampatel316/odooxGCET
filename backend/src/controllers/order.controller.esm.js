@@ -73,14 +73,12 @@ export const checkout = async (req, res) => {
       },
     });
 
-    // Send Status Email (Async, don't await if you want to speed up response)
+    // Send Status Email (Async)
     if (fullOrder && fullOrder.customer) {
-      sendOrderStatusEmail(fullOrder.customer.email, fullOrder.customer.name, {
-        orderNumber: fullOrder.orderNumber,
-        status: fullOrder.status,
-        totalAmount: fullOrder.totalAmount,
-      });
+      await sendOrderStatusEmail(fullOrder.customer.email, fullOrder.customer.name, fullOrder);
     }
+
+
 
     res.status(201).json(fullOrder);
 
