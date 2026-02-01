@@ -159,14 +159,14 @@ export const loginUser = async (req, res) => {
     });
 
     if (!user || !user.password) {
-      return res.status(400).json({ message: "Invalid credentials" });
+      return res.status(400).json({ message: "email or password not valid" });
     }
 
     // compare password
     const isValid = await bcrypt.compare(password, user.password);
 
     if (!isValid) {
-      return res.status(400).json({ message: "Invalid credentials" });
+      return res.status(400).json({ message: "email or password not valid" });
     }
 
     // generate tokens
