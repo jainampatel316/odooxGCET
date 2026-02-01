@@ -96,6 +96,8 @@ export const transformBackendOrder = (backendOrder) => {
     totalAmount: parseFloat(backendOrder.totalAmount) || 0,
     subtotal: backendOrder.subtotal != null ? parseFloat(backendOrder.subtotal) : undefined,
     taxAmount: backendOrder.taxAmount != null ? parseFloat(backendOrder.taxAmount) : undefined,
+    lateReturnFees: backendOrder.lateReturnFee != null ? parseFloat(backendOrder.lateReturnFee) : 0,
+    lateReturnDays: backendOrder.lines?.reduce((acc, line) => acc + (line.lateReturnDays || 0), 0) || 0,
     status: frontendStatus,
     quotationDate: backendOrder.createdAt,
     confirmedDate: backendOrder.confirmedAt,

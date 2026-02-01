@@ -213,3 +213,83 @@ export const sendOrderStatusEmail = async (customerEmail, customerName, fullOrde
 };
 
 
+
+export const sendLateFeeNotification = async (customerEmail, customerName, details) => {
+  const { orderNumber, productName, daysLate, newFee, totalDue, invoiceNumber } = details;
+  
+  const formatCurrency = (val) => `₹${parseFloat(val).toFixed(2)}`;
+
+  const mailOptions = {
+    from: `"${FROM_NAME}" <${FROM_EMAIL}>`,
+    to: customerEmail,
+    subject: `Overdue Notice: Late Fee Applied for Order #${orderNumber}`,
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+        <h2 style="color: #dc2626; margin-bottom: 20px;">Overdue Rental Items</h2>
+        <p>Hello ${customerName},</p>
+        <p>This is a notification that items from Order <strong>#${orderNumber}</strong> are overdue by <strong>${daysLate} day(s)</strong>.</p>
+        
+        <p>A late fee has been applied to your account according to our policy (Daily Rate + 10% Product Value).</p>
+        
+        <div style="background-color: #fef2f2; padding: 15px; border-radius: 6px; margin: 20px 0; border: 1px solid #fecaca;">
+          <p style="margin: 0; font-size: 14px; color: #991b1b;">Product:</p>
+          <p style="margin: 5px 0 15px 0; font-weight: bold;">${productName}</p>
+          
+          <p style="margin: 0; font-size: 14px; color: #991b1b;">New Late Fee Added:</p>
+          <p style="margin: 5px 0 15px 0; font-weight: bold; font-size: 18px;">${formatCurrency(newFee)}</p>
+           
+          <p style="margin: 0; font-size: 14px; color: #991b1b;">Total Outstanding Balance:</p>
+          <p style="margin: 5px 0 15px 0; font-weight: bold; font-size: 18px;">${formatCurrency(totalDue)}</p>
+
+          <p style="margin: 0; font-size: 14px; color: #991b1b;">Late Fee Invoice:</p>
+          <p style="margin: 5px 0 0 0; font-weight: bold; font-family: monospace;">${invoiceNumber}</p>
+        </div>
+
+        <p>Please return the items immediately to avoid further charges.</p>
+        
+        <p style="margin-top: 30px; font-size: 14px; color: #94a3b8;">Best Regards,<br>The RentWise Studio Team</p>
+      </div>
+    `,
+  };
+
+  try {
+    console.log(`[EmailService] Sending Late Fee email to ${customerEmail}`);
+    await transporter.sendMail(mailOptions);
+    console.log(`[EmailService] Late fee email sent successfully.`);
+  } catch (error) {
+    console.error('[EmailService] Error sending late fee email:', error);
+  }
+
+export const sendPasswordResetEmail = async (customerEmail, customerName, newPassword) => {
+  const mailOptions = {
+    from: `"${FROM_NAME}" <${FROM_EMAIL}>`,
+    to: customerEmail,
+    subject: `Password Reset Request - RentWise Studio`,
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+        <h2 style="color: #7c3aed; margin-bottom: 20px;">Password Reset</h2>
+        <p>Hello ${customerName},</p>
+        <p>We received a request to reset your password. Here is your new temporary password:</p>
+        
+        <div style="background-color: #f3f4f6; padding: 15px; border-radius: 6px; margin: 20px 0; text-align: center;">
+          <p style="margin: 0; font-family: monospace; font-size: 24px; letter-spacing: 2px; font-weight: bold; color: #1f2937;">
+            ${newPassword}
+          </p>
+        </div>
+
+        <p>Please log in using this password and change it immediately from your profile settings.</p>
+        
+        <p style="margin-top: 30px; font-size: 14px; color: #94a3b8;">If you did not request this, please contact support immediately.</p>
+        <p style="font-size: 14px; color: #94a3b8;">Best Regards,<br>The RentWise Studio Team</p>
+      </div>
+    `,
+  };
+
+  try {
+    console.log(`[EmailService] Sending Password Reset email to ${customerEmail}`);
+    await transporter.sendMail(mailOptions);
+    console.log(`[EmailService] Password reset email sent successfully.`);
+  } catch (error) {
+    console.error('[EmailService] Error sending password reset email:', error);
+  }
+};

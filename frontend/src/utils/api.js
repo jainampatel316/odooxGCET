@@ -65,6 +65,14 @@ export const authAPI = {
       method: 'POST',
     });
   },
+
+  // Forgot Password
+  forgotPassword: async (email) => {
+    return apiCall('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  },
 };
 
 // Product API functions

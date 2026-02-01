@@ -47,7 +47,36 @@ async function main() {
     console.log('Server running on http://localhost:' + PORT);
   });
 
+  // Background Task: Check for overdue orders every 24 hours
+  const startLateFeeScheduler = async () => {
+    const { processOverdueOrders } = await import('./src/services/lateFee.service.js');
+    console.log('[Scheduler] Initializing Late Fee Scheduler...');
+    
+    // Run once on startup (optional, good for dev testing, maybe comment out for prod if needed)
+    // await processOverdueOrders(); 
+
+    // Schedule: Every 24 hours (86400000 ms)
+    setInterval(() => {
+      console.log('[Scheduler] Running scheduled overdue check...');
+      processOverdueOrders();
+    }, 24 * 60 * 60 * 1000); 
+  };
+
+  startLateFeeScheduler();
+
+  // Test Endpoint for Late Fees (Admin only ideally, but public for dev)
+  app.post('/api/admin/run-late-fees', async (req, res) => {
+    try {
+      const { processOverdueOrders } = await import('./src/services/lateFee.service.js');
+      await processOverdueOrders();
+      res.json({ message: 'Overdue processing triggered successfully.' });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   server.on('error', (err) => {
+
     if (err.code === 'EADDRINUSE') {
       console.error('Port', PORT, 'is already in use.');
       console.error('Either stop the other process or run: set PORT=4001 && npm start');

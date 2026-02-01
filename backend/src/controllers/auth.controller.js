@@ -4,6 +4,7 @@ import {
   generateAccessToken,
   generateRefreshToken,
 } from "../utils/tokens.js";
+import { sendPasswordResetEmail } from "../services/email.service.js";
 
 
 // ================= REGISTER =================
@@ -210,3 +211,43 @@ export const logoutUser = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+
+// ================= FORGOT PASSWORD =================
+export const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    // Check if user exists
+    const user = await prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found. Please sign up first." });
+    }
+
+    // Generate temporary password
+    const tempPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-4).toUpperCase();
+    const hashedPassword = await bcrypt.hash(tempPassword, 10);
+
+    // Update user password
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { password: hashedPassword },
+    });
+
+    // Send email with new password
+    await sendPasswordResetEmail(user.email, user.name, tempPassword);
+
+    res.json({ message: "A new password has been sent to your email." });
+
+  } catch (error) {
+    console.error("Forgot password error:", error);
+    res.status(500).json({ message: "Server error during password reset" });
+  }
+};
+

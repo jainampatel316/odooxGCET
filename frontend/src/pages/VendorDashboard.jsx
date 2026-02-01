@@ -586,17 +586,8 @@ const VendorDashboard = () => {
                     className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20"
                   />
                 </div>
-                <select
-                  value={invoiceFilter}
-                  onChange={(e) => setInvoiceFilter(e.target.value)}
-                  className="px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20"
-                >
-                  <option value="all">All Invoices</option>
-                  <option value="paid">Paid</option>
-                  <option value="partial">Partial</option>
-                  <option value="pending">Pending</option>
-                </select>
               </div>
+
 
               {/* Invoices List */}
               <div className="bg-card rounded-xl border overflow-hidden">

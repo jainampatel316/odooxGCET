@@ -63,6 +63,19 @@ export const addToCart = async (req, res) => {
 
         const requestedQty = Math.max(1, Number(quantity) || 1);
         
+        // Check existing cart items
+        // Find if this product is already in the cart (regardless of variant for now to simple duplicate check, or match variant if provided)
+        // Since user said "similar products", we should match exact product + variant if variant exists.
+        const existingLine = await tx.quotationLine.findFirst({
+            where: { 
+                quotationId: cart.id, 
+                productId,
+                ...(variantId && { variantId }) 
+            }
+        });
+
+        const currentQtyInCart = existingLine ? existingLine.quantity : 0;
+        
         // Import getAvailableInventory at the top of the file
         const { getAvailableInventory } = await import('../services/inventory.service.js');
         
@@ -71,19 +84,32 @@ export const addToCart = async (req, res) => {
         const end = new Date(rentalEndDate);
         const available = await getAvailableInventory(productId, variantId, start, end, tx);
         
-        // Check existing cart items
-        const existingLines = await tx.quotationLine.findMany({
-          where: { quotationId: cart.id, productId },
-          select: { quantity: true },
-        });
-        const totalInCart = existingLines.reduce((sum, l) => sum + (l.quantity || 0), 0);
-        const remaining = Math.max(0, available - totalInCart);
+        // Total needed = existing (if updating) + requested?
+        // Logic: specific user complaint "same items is added again".
+        // Implies they want to MERGE.
+        // So new total quantity = currentQtyInCart + requestedQty.
+        // Wait, if they are "updating" via add, maybe they want the NEW quantity to be `requestedQty`?
+        // But `addToCart` usually adds. If I have 1, and add 1, I expect 2.
+        // Let's stick to ADDING quantity, but REPLACING dates.
         
-        if (remaining <= 0) {
-          throw new Error('Product is out of stock or maximum quantity already in cart');
-        }
-        if (requestedQty > remaining) {
-          throw new Error(`Only ${remaining} available. You already have ${totalInCart} in cart.`);
+        // HOWEVER, we must check if we have enough stock for the SUM.
+        // BUT, since we are updating the dates, the "old" dates' reservation is effectively moving to "new" dates.
+        // The `getAvailableInventory` check is for the NEW dates.
+        // Does `getAvailableInventory` subtract the items *already in cart*?
+        // Currently `getAvailableInventory` checks `InventoryLog` / `Reservation`. Cart items are NOT reservations yet.
+        // So `available` is the pool available for THIS cart to take from.
+        // If we merge, we need `available >= (currentQtyInCart + requestedQty)`.
+        
+        // Wait, strictly speaking, `getAvailableInventory` only checks Confirmed/Active orders/reservations.
+        // It does NOT check other draft carts (unless we implemented locking, which we have debated).
+        // It definitely does NOT check *this* cart's lines because they are just lines.
+        
+        // So `available` is what is physically available.
+        // We need to ensure `(currentQtyInCart + requestedQty) <= available`.
+        const newTotalQty = currentQtyInCart + requestedQty;
+        
+        if (newTotalQty > available) {
+           throw new Error(`Only ${available} available. You have ${currentQtyInCart} in cart + adding ${requestedQty}.`);
         }
 
         const duration = isHourly
@@ -96,35 +122,70 @@ export const addToCart = async (req, res) => {
           const salesPrice = Number(product.salesPrice) || 0;
           unitPrice = isHourly ? salesPrice * duration : salesPrice * duration;
         }
-        const lineTotal = unitPrice * requestedQty;
+        
+        // Calculate new line total
+        const lineTotal = unitPrice * newTotalQty;
 
-        // Create cart line
-        await tx.quotationLine.create({
-          data: {
-            quotationId: cart.id,
-            productId,
-            variantId: variantId || null,
-            quantity: requestedQty,
-            rentalStartDate: start,
-            rentalEndDate: end,
-            rentalPeriodType: periodType,
-            rentalDuration: duration,
-            unitPrice,
-            lineTotal,
-            taxRate: 0,
-            taxAmount: 0,
-          },
-        });
+        if (existingLine) {
+            // UPDATE existing line
+            // We subtract the OLD line total from cart, and add the NEW line total.
+            const oldLineTotal = Number(existingLine.lineTotal);
+            
+            await tx.quotationLine.update({
+                where: { id: existingLine.id },
+                data: {
+                    quantity: newTotalQty,
+                    rentalStartDate: start,
+                    rentalEndDate: end,
+                    rentalPeriodType: periodType,
+                    rentalDuration: duration,
+                    unitPrice,
+                    lineTotal, // Total for the merged quantity
+                }
+            });
 
-        // Update cart totals
-        await tx.quotation.update({
-          where: { id: cart.id },
-          data: {
-            subtotal: { increment: lineTotal },
-            taxAmount: { increment: 0 },
-            totalAmount: { increment: lineTotal },
-          },
-        });
+            // Update cart totals
+            const delta = lineTotal - oldLineTotal;
+            await tx.quotation.update({
+                where: { id: cart.id },
+                data: {
+                    subtotal: { increment: delta },
+                    totalAmount: { increment: delta },
+                }
+            });
+
+        } else {
+            // CREATE new line (standard flow)
+            // Just for this line
+             const newLineTotal = unitPrice * requestedQty;
+
+            await tx.quotationLine.create({
+            data: {
+                quotationId: cart.id,
+                productId,
+                variantId: variantId || null,
+                quantity: requestedQty,
+                rentalStartDate: start,
+                rentalEndDate: end,
+                rentalPeriodType: periodType,
+                rentalDuration: duration,
+                unitPrice,
+                lineTotal: newLineTotal,
+                taxRate: 0,
+                taxAmount: 0,
+            },
+            });
+
+            // Update cart totals
+            await tx.quotation.update({
+            where: { id: cart.id },
+            data: {
+                subtotal: { increment: newLineTotal },
+                taxAmount: { increment: 0 },
+                totalAmount: { increment: newLineTotal },
+            },
+            });
+        }
 
         // Return full cart
         return await tx.quotation.findFirst({

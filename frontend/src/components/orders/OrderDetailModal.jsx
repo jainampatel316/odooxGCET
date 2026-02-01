@@ -99,6 +99,12 @@ const OrderDetailModal = ({ order, onClose, onStatusChange }) => {
                                 <span className="text-sm text-gray-600">Total Amount:</span>
                                 <span className="text-lg font-bold">{formatCurrency(order.total)}</span>
                             </div>
+                            {order.lateReturnFees > 0 && (
+                                <div className="flex justify-between border-t pt-2 mt-2">
+                                    <span className="text-sm font-medium text-red-600">Late Return Fees:</span>
+                                    <span className="text-lg font-bold text-red-600">{formatCurrency(order.lateReturnFees)}</span>
+                                </div>
+                            )}
                         </div>
                     </div>
 

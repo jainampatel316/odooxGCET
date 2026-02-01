@@ -6,6 +6,7 @@ import { Button } from '../components/ui/button';
 import { useApp } from '../context/AppContext';
 import { authAPI } from '../utils/api';
 import { toast } from '@/hooks/use-toast';
+import ForgotPasswordModal from '../components/auth/ForgotPasswordModal';
 
 const LoginPage = () => {
   const navigate = useNavigate();
@@ -16,6 +17,7 @@ const LoginPage = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -106,9 +108,13 @@ const LoginPage = () => {
                   <input type="checkbox" className="rounded border-gray-300 text-primary focus:ring-primary" />
                   <span className="text-sm">Remember me</span>
                 </label>
-                <Link to="/forgot-password" className="text-sm text-primary hover:underline">
+                <button
+                  type="button"
+                  onClick={() => setIsForgotPasswordOpen(true)}
+                  className="text-sm text-primary hover:underline"
+                >
                   Forgot password?
-                </Link>
+                </button>
               </div>
 
               <Button type="submit" className="w-full" disabled={isLoading}>
@@ -125,6 +131,11 @@ const LoginPage = () => {
           </p>
         </div>
       </div>
+
+      <ForgotPasswordModal
+        isOpen={isForgotPasswordOpen}
+        onClose={() => setIsForgotPasswordOpen(false)}
+      />
     </CustomerLayout>
   );
 };
