@@ -8,7 +8,9 @@ import {
 } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { toast } from '@/hooks/use-toast';
+import { Plus, Trash2 } from 'lucide-react';
 import { vendorProductAPI } from '../../utils/api';
+
 
 const emptyForm = {
   name: '',
@@ -23,7 +25,9 @@ const emptyForm = {
   status: 'DRAFT',
   imageUrl: '',
   tags: '',
+  attributes: [{ category: '', value: '' }],
 };
+
 
 export default function AddProductModal({ open, onOpenChange, onSuccess, product: editingProduct }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -49,7 +53,12 @@ export default function AddProductModal({ open, onOpenChange, onSuccess, product
         status: editingProduct.status ?? 'DRAFT',
         imageUrl: editingProduct.imageUrl ?? '',
         tags: Array.isArray(editingProduct.tags) ? editingProduct.tags.join(', ') : (editingProduct.tags ?? ''),
+        attributes: editingProduct.attributes?.map(attr => ({
+          category: attr.category?.name || '',
+          value: attr.value?.value || ''
+        })) || [{ category: '', value: '' }],
       });
+
     } else if (open && !editingProduct) {
       setForm(emptyForm);
     }
@@ -62,6 +71,31 @@ export default function AddProductModal({ open, onOpenChange, onSuccess, product
       [name]: type === 'checkbox' ? checked : type === 'number' ? (value === '' ? '' : Number(value)) : value,
     }));
   };
+
+  const handleAttributeChange = (index, field, value) => {
+    setForm(prev => {
+      const newAttrs = [...prev.attributes];
+      newAttrs[index] = { ...newAttrs[index], [field]: value };
+      return { ...prev, attributes: newAttrs };
+    });
+  };
+
+  const addAttribute = () => {
+    setForm(prev => ({
+      ...prev,
+      attributes: [...prev.attributes, { category: '', value: '' }]
+    }));
+  };
+
+  const removeAttribute = (index) => {
+    setForm(prev => ({
+      ...prev,
+      attributes: prev.attributes.length > 1
+        ? prev.attributes.filter((_, i) => i !== index)
+        : [{ category: '', value: '' }]
+    }));
+  };
+
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -96,6 +130,7 @@ export default function AddProductModal({ open, onOpenChange, onSuccess, product
         status: form.status,
         imageUrl: form.imageUrl?.trim() || null,
         tags: form.tags ? form.tags.split(',').map((t) => t.trim()).filter(Boolean) : [],
+        attributes: form.attributes.filter(attr => attr.category.trim() && attr.value.trim()),
       };
       if (isEdit) {
         await vendorProductAPI.updateProduct(editingProduct.id, payload);
@@ -271,7 +306,66 @@ export default function AddProductModal({ open, onOpenChange, onSuccess, product
               <option value="PUBLISHED">Published</option>
             </select>
           </div>
-          <DialogFooter>
+
+          <div className="space-y-3 pt-2 border-t">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-semibold text-gray-700">Custom Attributes</label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={addAttribute}
+                className="h-8 text-xs bg-primary/5 hover:bg-primary/10 border-primary/20 text-primary"
+              >
+                <Plus className="h-3 w-3 mr-1" /> Add Attribute
+              </Button>
+            </div>
+
+            <div className="space-y-2">
+              {form.attributes.map((attr, index) => (
+                <div key={index} className="flex gap-2 group animate-in fade-in slide-in-from-top-1 duration-200">
+                  <div className="flex-1">
+                    <input
+                      placeholder="Name (e.g. Color)"
+                      value={attr.category}
+                      onChange={(e) => handleAttributeChange(index, 'category', e.target.value)}
+                      className="w-full px-3 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 bg-gray-50/50"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <input
+                      placeholder="Value (e.g. Red)"
+                      value={attr.value}
+                      onChange={(e) => handleAttributeChange(index, 'value', e.target.value)}
+                      className="w-full px-3 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 bg-gray-50/50"
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeAttribute(index)}
+                    className="h-8 w-8 text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                    title="Remove attribute"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+
+              {form.attributes.length === 0 && (
+                <div className="text-center py-4 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
+                  <p className="text-xs text-gray-500">No custom attributes added yet.</p>
+                </div>
+              )}
+            </div>
+            <p className="text-[10px] text-gray-400">
+              Tip: Add attributes like Material, Dimensions, Color, or Technical Specs.
+            </p>
+          </div>
+
+          <DialogFooter className="sticky bottom-0 bg-white pt-2 border-t mt-4">
+
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
               Cancel
             </Button>

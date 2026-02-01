@@ -38,8 +38,16 @@ export const mapBackendProductToFrontend = (backendProduct) => {
     // Images
     images,
     imageUrl: backendProduct.imageUrl || images[0] || '/placeholder.svg',
-    // Attributes
-    attributes: backendProduct.attributes || {},
+    // Attributes - Map array of {category: {name}, value: {value}} to flat object
+    attributes: Array.isArray(backendProduct.attributes) 
+      ? backendProduct.attributes.reduce((acc, attr) => {
+          if (attr.category?.name && attr.value?.value) {
+            acc[attr.category.name] = attr.value.value;
+          }
+          return acc;
+        }, {})
+      : (backendProduct.attributes || {}),
+
     // Vendor info
     vendor: backendProduct.vendor,
     vendorId: backendProduct.vendor?.id,

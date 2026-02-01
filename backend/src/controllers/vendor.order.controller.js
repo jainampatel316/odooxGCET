@@ -1,4 +1,6 @@
 import prisma from "../lib/prisma.js";
+import { sendOrderStatusEmail } from "../services/email.service.js";
+
 
 // Get orders containing this vendor's products
 export const getVendorOrders = async (req, res) => {
@@ -115,12 +117,21 @@ export const processPickup = async (req, res) => {
     }
 
     // 5. Update order status: CONFIRMED → ACTIVE when pickup is completed
-    if (order.status === "CONFIRMED") {
-      await prisma.rentalOrder.update({
+    if (order.status === "CONFIRMED" || order.status === "PICKED_UP") {
+      const updatedOrder = await prisma.rentalOrder.update({
         where: { id: orderId },
         data: { status: "ACTIVE" },
+        include: { customer: { select: { name: true, email: true } } }
+      });
+
+      sendOrderStatusEmail(updatedOrder.customer.email, updatedOrder.customer.name, {
+        orderNumber: updatedOrder.orderNumber,
+        status: updatedOrder.status,
+        totalAmount: updatedOrder.totalAmount,
       });
     }
+
+
 
     res.json({ message: "Pickup processed successfully" });
   } catch (error) {
@@ -213,11 +224,19 @@ export const processReturn = async (req, res) => {
 
     // 5. Update order status: ACTIVE → RETURNED when return is completed
     if (order.status === "ACTIVE" || order.status === "PICKED_UP") {
-      await prisma.rentalOrder.update({
+      const updatedOrder = await prisma.rentalOrder.update({
         where: { id: orderId },
         data: { status: "RETURNED" },
+        include: { customer: { select: { name: true, email: true } } }
+      });
+
+      sendOrderStatusEmail(updatedOrder.customer.email, updatedOrder.customer.name, {
+        orderNumber: updatedOrder.orderNumber,
+        status: updatedOrder.status,
+        totalAmount: updatedOrder.totalAmount,
       });
     }
+
 
     // 6. Create invoice for the order (after return) if none exists
     let createdInvoice = null;
@@ -270,10 +289,18 @@ export const confirmOrder = async (req, res) => {
     if (order.status !== "DRAFT") {
       return res.status(400).json({ message: "Only draft orders can be confirmed" });
     }
-    await prisma.rentalOrder.update({
+    const updatedOrder = await prisma.rentalOrder.update({
       where: { id: orderId },
       data: { status: "CONFIRMED", confirmedAt: new Date() },
+      include: { customer: { select: { name: true, email: true } } }
     });
+
+    sendOrderStatusEmail(updatedOrder.customer.email, updatedOrder.customer.name, {
+      orderNumber: updatedOrder.orderNumber,
+      status: updatedOrder.status,
+      totalAmount: updatedOrder.totalAmount,
+    });
+
     res.json({ message: "Order confirmed" });
   } catch (error) {
     console.error(error);
@@ -311,10 +338,18 @@ export const cancelOrder = async (req, res) => {
       }
 
       // 1. Update order status to CANCELLED
-      await tx.rentalOrder.update({
+      const updatedOrder = await tx.rentalOrder.update({
         where: { id: orderId },
         data: { status: "CANCELLED" },
+        include: { customer: { select: { name: true, email: true } } }
       });
+
+      sendOrderStatusEmail(updatedOrder.customer.email, updatedOrder.customer.name, {
+        orderNumber: updatedOrder.orderNumber,
+        status: updatedOrder.status,
+        totalAmount: updatedOrder.totalAmount,
+      });
+
 
       // 2. Release all reservations for this order
       const { releaseReservation } = require('../services/inventory.service.js');
@@ -398,10 +433,18 @@ export const completeOrder = async (req, res) => {
     if (order.status !== "RETURNED") {
       return res.status(400).json({ message: "Only returned orders can be marked complete" });
     }
-    await prisma.rentalOrder.update({
+    const updatedOrder = await prisma.rentalOrder.update({
       where: { id: orderId },
       data: { status: "COMPLETED" },
+      include: { customer: { select: { name: true, email: true } } }
     });
+
+    sendOrderStatusEmail(updatedOrder.customer.email, updatedOrder.customer.name, {
+      orderNumber: updatedOrder.orderNumber,
+      status: updatedOrder.status,
+      totalAmount: updatedOrder.totalAmount,
+    });
+
     res.json({ message: "Order completed" });
   } catch (error) {
     console.error(error);

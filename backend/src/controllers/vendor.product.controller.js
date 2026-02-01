@@ -1,6 +1,54 @@
 import prisma from "../lib/prisma.js";
 import { updateInventory } from "../services/inventory.service.js";
 
+// Helper to resolve string attributes to IDs (creating category/value if missing)
+const resolveAttributes = async (attributes, tx) => {
+  if (!attributes || !Array.isArray(attributes)) return [];
+  
+  const resolved = [];
+  for (const attr of attributes) {
+    const categoryName = (attr.category || "").trim();
+    const valueText = (attr.value || "").trim();
+    
+    if (!categoryName || !valueText) continue;
+    
+    try {
+      // 1. Find or create category
+      let category = await tx.attributeCategory.findUnique({
+        where: { name: categoryName }
+      });
+      if (!category) {
+        category = await tx.attributeCategory.create({
+          data: { name: categoryName }
+        });
+      }
+      
+      // 2. Find or create value (using findFirst to avoid index name issues)
+      let value = await tx.attributeValue.findFirst({
+        where: {
+          categoryId: category.id,
+          value: valueText
+        }
+      });
+      if (!value) {
+        value = await tx.attributeValue.create({
+          data: {
+            categoryId: category.id,
+            value: valueText
+          }
+        });
+      }
+      
+      resolved.push({ categoryId: category.id, valueId: value.id });
+    } catch (err) {
+      console.error(`Error resolving attribute "${categoryName}: ${valueText}":`, err);
+      // Continue to next attribute instead of failing entire request
+    }
+  }
+  return resolved;
+};
+
+
 // Get all products for the logged-in vendor
 export const getVendorProducts = async (req, res) => {
   try {
@@ -37,8 +85,9 @@ export const createProduct = async (req, res) => {
       status, // DRAFT, PUBLISHED
       imageUrl,
       tags,
-      attributes, // Array of {categoryId, valueId}
+      attributes, // Array of {category: string, value: string}
     } = req.body;
+
 
     // Use transaction to ensure atomicity
     const result = await prisma.$transaction(async (tx) => {
@@ -95,15 +144,33 @@ export const createProduct = async (req, res) => {
         await tx.rentalPricing.createMany({ data: pricingToCreate });
       }
 
-      // Create product attributes if provided
+      // Create product attributes if provided (dynamic resolution)
       if (attributes && Array.isArray(attributes) && attributes.length > 0) {
-        const attributesToCreate = attributes.map(attr => ({
-          productId: product.id,
-          categoryId: attr.categoryId,
-          valueId: attr.valueId,
-        }));
-        await tx.productAttribute.createMany({ data: attributesToCreate });
+        console.log('Resolving attributes for new product:', attributes);
+        const resolvedAttrs = await resolveAttributes(attributes, tx);
+        console.log('Resolved attributes:', resolvedAttrs);
+        
+        const processedCategories = new Set();
+        const attributesToCreate = [];
+        
+        for (const attr of resolvedAttrs) {
+          if (attr && attr.categoryId && attr.valueId && !processedCategories.has(attr.categoryId)) {
+            processedCategories.add(attr.categoryId);
+            attributesToCreate.push({
+              productId: product.id,
+              categoryId: attr.categoryId,
+              valueId: attr.valueId,
+            });
+          }
+        }
+        
+        if (attributesToCreate.length > 0) {
+          await tx.productAttribute.createMany({ data: attributesToCreate });
+        }
       }
+
+
+
 
       // Fetch complete product with relations
       return tx.product.findUnique({
@@ -199,7 +266,7 @@ export const updateProduct = async (req, res) => {
         await tx.rentalPricing.createMany({ data: pricingToCreate });
       }
 
-      // Update product attributes if provided
+      // Update product attributes if provided (dynamic resolution)
       if (attributes && Array.isArray(attributes)) {
         // Remove existing attributes
         await tx.productAttribute.deleteMany({
@@ -208,14 +275,32 @@ export const updateProduct = async (req, res) => {
         
         // Add new attributes
         if (attributes.length > 0) {
-          const attributesToCreate = attributes.map(attr => ({
-            productId: id,
-            categoryId: attr.categoryId,
-            valueId: attr.valueId,
-          }));
-          await tx.productAttribute.createMany({ data: attributesToCreate });
+          console.log('Resolving attributes for existing product:', attributes);
+          const resolvedAttrs = await resolveAttributes(attributes, tx);
+          console.log('Resolved attributes:', resolvedAttrs);
+          
+          const processedCategories = new Set();
+          const attributesToCreate = [];
+          
+          for (const attr of resolvedAttrs) {
+            if (attr && attr.categoryId && attr.valueId && !processedCategories.has(attr.categoryId)) {
+              processedCategories.add(attr.categoryId);
+              attributesToCreate.push({
+                productId: id,
+                categoryId: attr.categoryId,
+                valueId: attr.valueId,
+              });
+            }
+          }
+          
+          if (attributesToCreate.length > 0) {
+            await tx.productAttribute.createMany({ data: attributesToCreate });
+          }
         }
       }
+
+
+
 
       // Fetch complete product with relations
       return tx.product.findUnique({

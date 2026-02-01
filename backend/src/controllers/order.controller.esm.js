@@ -1,4 +1,6 @@
 import prisma from '../lib/prisma.js';
+import { sendOrderStatusEmail } from '../services/email.service.js';
+
 
 export const checkout = async (req, res) => {
   try {
@@ -67,9 +69,21 @@ export const checkout = async (req, res) => {
         lines: { include: { product: true, variant: true } },
         billingAddress: true,
         shippingAddress: true,
+        customer: { select: { name: true, email: true } },
       },
     });
+
+    // Send Status Email (Async, don't await if you want to speed up response)
+    if (fullOrder && fullOrder.customer) {
+      sendOrderStatusEmail(fullOrder.customer.email, fullOrder.customer.name, {
+        orderNumber: fullOrder.orderNumber,
+        status: fullOrder.status,
+        totalAmount: fullOrder.totalAmount,
+      });
+    }
+
     res.status(201).json(fullOrder);
+
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
